@@ -50,7 +50,6 @@
 #define MSG_LEVEL_BED_WAITING               _UxGT("Iniciar (Presione)")
 #define MSG_LEVEL_BED_NEXT_POINT            _UxGT("Siguiente punto")
 #define MSG_LEVEL_BED_DONE                  _UxGT("Nivelacion lista!")
-#define MSG_LEVEL_BED_CANCEL                _UxGT("Cancelar")
 #define MSG_SET_HOME_OFFSETS                _UxGT("Ajustar desfases")
 #define MSG_HOME_OFFSETS_APPLIED            _UxGT("Desfase aplicado")
 #define MSG_SET_ORIGIN                      _UxGT("Establecer origen")
@@ -72,6 +71,7 @@
 #define MSG_EXTRUDE                         _UxGT("Extruir")
 #define MSG_RETRACT                         _UxGT("Retraer")
 #define MSG_MOVE_AXIS                       _UxGT("Mover ejes")
+#define MSG_BED_LEVELING                    _UxGT("Nivelar plataforma")
 #define MSG_LEVEL_BED                       _UxGT("Nivelar plataforma")
 #define MSG_MOVING                          _UxGT("Moviendo...")
 #define MSG_FREE_XY                         _UxGT("Libre XY")
@@ -101,6 +101,7 @@
 #define MSG_PID_C                           _UxGT("PID-C")
 #define MSG_SELECT                          _UxGT("Seleccionar")
 #define MSG_ACC                             _UxGT("Aceleracion")
+#define MSG_JERK                            _UxGT("Jerk")
 #define MSG_VX_JERK                         _UxGT("Vx-jerk")
 #define MSG_VY_JERK                         _UxGT("Vy-jerk")
 #define MSG_VZ_JERK                         _UxGT("Vz-jerk")
@@ -108,9 +109,11 @@
 #define MSG_VMAX                            _UxGT("Vmax")
 #define MSG_VMIN                            _UxGT("Vmin")
 #define MSG_VTRAV_MIN                       _UxGT("Vel. viaje min")
+#define MSG_ACCELERATION                    MSG_ACC
 #define MSG_AMAX                            _UxGT("Acel. max")
 #define MSG_A_RETRACT                       _UxGT("Acel. retrac.")
 #define MSG_A_TRAVEL                        _UxGT("Acel. Viaje")
+#define MSG_STEPS_PER_MM                    _UxGT("Pasos/mm")
 #define MSG_XSTEPS                          _UxGT("X pasos/mm")
 #define MSG_YSTEPS                          _UxGT("Y pasos/mm")
 #define MSG_ZSTEPS                          _UxGT("Z pasos/mm")
@@ -199,8 +202,8 @@
 #define MSG_INFO_EXTRUDERS                  _UxGT("Extrusores")
 #define MSG_INFO_BAUDRATE                   _UxGT("Baudios")
 #define MSG_INFO_PROTOCOL                   _UxGT("Protocolo")
-#define MSG_LIGHTS_ON                       _UxGT("Luz cabina ON")
-#define MSG_LIGHTS_OFF                      _UxGT("Luz cabina OFF")
+#define MSG_CASE_LIGHT                      _UxGT("Luz cabina")
+
 #if LCD_WIDTH > 19
   #define MSG_INFO_PRINT_COUNT              _UxGT("Conteo de impresion")
   #define MSG_INFO_COMPLETED_PRINTS         _UxGT("Completadas")
@@ -214,6 +217,7 @@
   #define MSG_INFO_PRINT_LONGEST            _UxGT("Mas larga")
   #define MSG_INFO_PRINT_FILAMENT           _UxGT("Extrusion")
 #endif
+
 #define MSG_INFO_MIN_TEMP                   _UxGT("Temperatura minima")
 #define MSG_INFO_MAX_TEMP                   _UxGT("Temperatura maxima")
 #define MSG_INFO_PSU                        _UxGT("Fuente de poder")
