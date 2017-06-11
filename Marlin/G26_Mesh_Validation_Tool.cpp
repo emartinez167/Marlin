@@ -288,7 +288,7 @@
           SERIAL_ECHOPAIR("   Doing circle at: (xi=", xi);
           SERIAL_ECHOPAIR(", yi=", yi);
           SERIAL_CHAR(')');
-          SERIAL_EOL;
+          SERIAL_EOL();
         }
 
         start_angle = 0.0;    // assume it is going to be a full circle
@@ -467,7 +467,7 @@
                   SERIAL_ECHOPAIR(") -> (ex=", ex);
                   SERIAL_ECHOPAIR(", ey=", ey);
                   SERIAL_CHAR(')');
-                  SERIAL_EOL;
+                  SERIAL_EOL();
                   //debug_current_and_destination(PSTR("Connecting horizontal line."));
                 }
 
@@ -501,7 +501,7 @@
                     SERIAL_ECHOPAIR(") -> (ex=", ex);
                     SERIAL_ECHOPAIR(", ey=", ey);
                     SERIAL_CHAR(')');
-                    SERIAL_EOL;
+                    SERIAL_EOL();
                     debug_current_and_destination(PSTR("Connecting vertical line."));
                   }
                   print_line_from_here_to_there(LOGICAL_X_POSITION(sx), LOGICAL_Y_POSITION(sy), g26_layer_height, LOGICAL_X_POSITION(ex), LOGICAL_Y_POSITION(ey), g26_layer_height);
@@ -684,7 +684,8 @@
           SERIAL_PROTOCOLLNPGM("?Prime length must be specified when not using an LCD.");
           return UBL_ERR;
         #endif
-      } else {
+      }
+      else {
         g26_prime_flag++;
         g26_prime_length = parser.value_linear_units();
         if (!WITHIN(g26_prime_length, 0.0, 25.0)) {
@@ -727,7 +728,9 @@
       if (!parser.seen('R')) {
         SERIAL_PROTOCOLLNPGM("?(R)epeat must be specified when not using an LCD.");
         return UBL_ERR;
-      } else g26_repeats = parser.has_value() ? parser.value_int() : GRID_MAX_POINTS + 1;
+      }
+      else
+        g26_repeats = parser.has_value() ? parser.value_int() : GRID_MAX_POINTS + 1;
     #endif
     if (g26_repeats < 1) {
       SERIAL_PROTOCOLLNPGM("?(R)epeat value not plausible; must be at least 1.");
