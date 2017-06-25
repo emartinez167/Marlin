@@ -1249,6 +1249,7 @@ void kill_screen(const char* lcd_msg) {
    *
    */
   #if ENABLED(DAC_STEPPER_CURRENT)
+
     void dac_driver_getValues() { LOOP_XYZE(i) driverPercent[i] = dac_current_get_percent((AxisEnum)i); }
 
     void dac_driver_commit() { dac_current_set_percents(driverPercent); }
@@ -1266,7 +1267,27 @@ void kill_screen(const char* lcd_msg) {
       MENU_ITEM(function, MSG_DAC_EEPROM_WRITE, dac_driver_eeprom_write);
       END_MENU();
     }
-  #endif
+
+  #endif // DAC_STEPPER_CURRENT
+
+  #if HAS_MOTOR_CURRENT_PWM
+
+    void lcd_pwm_menu() {
+      START_MENU();
+      MENU_BACK(MSG_CONTROL);
+      #if PIN_EXISTS(MOTOR_CURRENT_PWM_XY)
+        MENU_ITEM_EDIT_CALLBACK(long5, MSG_X MSG_Y, &stepper.motor_current_setting[0], 100, 2000, Stepper::refresh_motor_power);
+      #endif
+      #if PIN_EXISTS(MOTOR_CURRENT_PWM_Z)
+        MENU_ITEM_EDIT_CALLBACK(long5, MSG_Z, &stepper.motor_current_setting[1], 100, 2000, Stepper::refresh_motor_power);
+      #endif
+      #if PIN_EXISTS(MOTOR_CURRENT_PWM_E)
+        MENU_ITEM_EDIT_CALLBACK(long5, MSG_E, &stepper.motor_current_setting[2], 100, 2000, Stepper::refresh_motor_power);
+      #endif
+      END_MENU();
+    }
+
+  #endif // HAS_MOTOR_CURRENT_PWM
 
   constexpr int16_t heater_maxtemp[HOTENDS] = ARRAY_BY_HOTENDS(HEATER_0_MAXTEMP, HEATER_1_MAXTEMP, HEATER_2_MAXTEMP, HEATER_3_MAXTEMP, HEATER_4_MAXTEMP);
 
@@ -2894,6 +2915,9 @@ void kill_screen(const char* lcd_msg) {
     #if ENABLED(DAC_STEPPER_CURRENT)
       MENU_ITEM(submenu, MSG_DRIVE_STRENGTH, lcd_dac_menu);
     #endif
+    #if HAS_MOTOR_CURRENT_PWM
+      MENU_ITEM(submenu, MSG_DRIVE_STRENGTH, lcd_pwm_menu);
+    #endif
 
     #if ENABLED(BLTOUCH)
       MENU_ITEM(submenu, MSG_BLTOUCH, bltouch_menu);
@@ -3199,16 +3223,16 @@ void kill_screen(const char* lcd_msg) {
       if (e == active_extruder)
         _planner_refresh_positioning();
       else
-        planner.steps_to_mm[e] = 1.0 / planner.axis_steps_per_mm[e];
+        planner.steps_to_mm[E_AXIS + e] = 1.0 / planner.axis_steps_per_mm[E_AXIS + e];
     }
-    void _planner_refresh_e0_positioning() { _reset_e_acceleration_rate(0); }
-    void _planner_refresh_e1_positioning() { _reset_e_acceleration_rate(1); }
+    void _planner_refresh_e0_positioning() { _planner_refresh_e_positioning(0); }
+    void _planner_refresh_e1_positioning() { _planner_refresh_e_positioning(1); }
     #if E_STEPPERS > 2
-      void _planner_refresh_e2_positioning() { _reset_e_acceleration_rate(2); }
+      void _planner_refresh_e2_positioning() { _planner_refresh_e_positioning(2); }
       #if E_STEPPERS > 3
-        void _planner_refresh_e3_positioning() { _reset_e_acceleration_rate(3); }
+        void _planner_refresh_e3_positioning() { _planner_refresh_e_positioning(3); }
         #if E_STEPPERS > 4
-          void _planner_refresh_e4_positioning() { _reset_e_acceleration_rate(4); }
+          void _planner_refresh_e4_positioning() { _planner_refresh_e_positioning(4); }
         #endif // E_STEPPERS > 4
       #endif // E_STEPPERS > 3
     #endif // E_STEPPERS > 2
@@ -4001,7 +4025,7 @@ void kill_screen(const char* lcd_msg) {
    *
    */
   #if ENABLED(REPRAPWORLD_KEYPAD)
-    void _reprapworld_keypad_move(AxisEnum axis, int16_t dir) {
+    void _reprapworld_keypad_move(const AxisEnum axis, const int16_t dir) {
       move_menu_scale = REPRAPWORLD_KEYPAD_MOVE_STEP;
       encoderPosition = dir;
       switch (axis) {
