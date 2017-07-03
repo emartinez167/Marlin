@@ -333,7 +333,6 @@
 #if ENABLED(AUTO_BED_LEVELING_UBL)
   #include "ubl.h"
   extern bool defer_return_to_status;
-  extern bool ubl_lcd_map_control;
   unified_bed_leveling ubl;
   #define UBL_MESH_VALID !( ( ubl.z_values[0][0] == ubl.z_values[0][1] && ubl.z_values[0][1] == ubl.z_values[0][2] \
                            && ubl.z_values[1][0] == ubl.z_values[1][1] && ubl.z_values[1][1] == ubl.z_values[1][2] \
@@ -906,12 +905,6 @@ void setup_killpin() {
   }
 
 #endif
-
-void setup_homepin(void) {
-  #if HAS_HOME
-    SET_INPUT_PULLUP(HOME_PIN);
-  #endif
-}
 
 void setup_powerhold() {
   #if HAS_SUICIDE
@@ -7742,11 +7735,9 @@ inline void gcode_M18_M84() {
       #endif
     }
 
-    #if ENABLED(AUTO_BED_LEVELING_UBL) && ENABLED(ULTRA_LCD)  //only needed if have an LCD
-      ubl_lcd_map_control = false;
-      defer_return_to_status = false;
+    #if ENABLED(AUTO_BED_LEVELING_UBL) && ENABLED(ULTRA_LCD)  // Only needed with an LCD
+      ubl_lcd_map_control = defer_return_to_status = false;
     #endif
-
   }
 }
 
@@ -9282,12 +9273,14 @@ inline void gcode_M502() {
   (void)settings.reset();
 }
 
-/**
- * M503: print settings currently in memory
- */
-inline void gcode_M503() {
-  (void)settings.report(!parser.boolval('S', true));
-}
+#if DISABLED(DISABLE_M503)
+  /**
+   * M503: print settings currently in memory
+   */
+  inline void gcode_M503() {
+    (void)settings.report(!parser.boolval('S', true));
+  }
+#endif
 
 #if ENABLED(ABORT_ON_ENDSTOP_HIT_FEATURE_ENABLED)
 
@@ -11025,9 +11018,12 @@ void process_next_command() {
       case 502: // M502: Revert to default settings
         gcode_M502();
         break;
-      case 503: // M503: print settings currently in memory
-        gcode_M503();
-        break;
+
+      #if DISABLED(DISABLE_M503)
+        case 503: // M503: print settings currently in memory
+          gcode_M503();
+          break;
+      #endif
 
       #if ENABLED(ABORT_ON_ENDSTOP_HIT_FEATURE_ENABLED)
         case 540: // M540: Set abort on endstop hit for SD printing
@@ -12637,9 +12633,8 @@ void manage_inactivity(bool ignore_stepper_queue/*=false*/) {
     #if ENABLED(DISABLE_INACTIVE_E)
       disable_e_steppers();
     #endif
-    #if ENABLED(AUTO_BED_LEVELING_UBL) && ENABLED(ULTRA_LCD)  //only needed if have an LCD
-      ubl_lcd_map_control = false;
-      defer_return_to_status = false;
+    #if ENABLED(AUTO_BED_LEVELING_UBL) && ENABLED(ULTRA_LCD)  // Only needed with an LCD
+      ubl_lcd_map_control = defer_return_to_status = false;
     #endif
   }
 
@@ -13007,7 +13002,9 @@ void setup() {
     OUT_WRITE(SOL1_PIN, LOW); // turn it off
   #endif
 
-  setup_homepin();
+  #if HAS_HOME
+    SET_INPUT_PULLUP(HOME_PIN);
+  #endif
 
   #if PIN_EXISTS(STAT_LED_RED)
     OUT_WRITE(STAT_LED_RED_PIN, LOW); // turn it off
@@ -13033,11 +13030,16 @@ void setup() {
   #endif
 
   lcd_init();
+
   #if ENABLED(SHOW_BOOTSCREEN)
-    #if ENABLED(DOGLCD)
-      safe_delay(BOOTSCREEN_TIMEOUT);
+    #if ENABLED(DOGLCD)                           // On DOGM the first bootscreen is already drawn
+      #if ENABLED(SHOW_CUSTOM_BOOTSCREEN)
+        safe_delay(CUSTOM_BOOTSCREEN_TIMEOUT);    // Custom boot screen pause
+        lcd_bootscreen();                         // Show Marlin boot screen
+      #endif
+      safe_delay(BOOTSCREEN_TIMEOUT);             // Pause
     #elif ENABLED(ULTRA_LCD)
-      bootscreen();
+      lcd_bootscreen();
       #if DISABLED(SDSUPPORT)
         lcd_init();
       #endif
