@@ -279,6 +279,10 @@
   #include "watchdog.h"
 #endif
 
+#if ENABLED(NEOPIXEL_RGBW_LED)
+  #include <Adafruit_NeoPixel.h>
+#endif
+
 #if ENABLED(BLINKM)
   #include "blinkm.h"
   #include "Wire.h"
@@ -452,8 +456,8 @@ float filament_size[EXTRUDERS], volumetric_multiplier[EXTRUDERS];
 #if HAS_SOFTWARE_ENDSTOPS
   bool soft_endstops_enabled = true;
 #endif
-float soft_endstop_min[XYZ] = { X_MIN_POS, Y_MIN_POS, Z_MIN_POS },
-      soft_endstop_max[XYZ] = { X_MAX_POS, Y_MAX_POS, Z_MAX_POS };
+float soft_endstop_min[XYZ] = { X_MIN_BED, Y_MIN_BED, Z_MIN_POS },
+      soft_endstop_max[XYZ] = { X_MAX_BED, Y_MAX_BED, Z_MAX_POS };
 
 #if FAN_COUNT > 0
   int16_t fanSpeeds[FAN_COUNT] = { 0 };
@@ -968,12 +972,60 @@ void servo_init() {
 
 #if HAS_COLOR_LEDS
 
+  #if ENABLED(NEOPIXEL_RGBW_LED)
+
+    Adafruit_NeoPixel pixels(NEOPIXEL_PIXELS, NEOPIXEL_PIN, NEO_GRBW + NEO_KHZ800);
+
+    void set_neopixel_color(const uint32_t color) {
+      for (uint16_t i = 0; i < pixels.numPixels(); ++i)
+        pixels.setPixelColor(i, color);
+      pixels.show();
+    }
+
+    void setup_neopixel() {
+      pixels.setBrightness(255); // 0 - 255 range
+      pixels.begin();
+      pixels.show(); // initialize to all off
+
+      #if ENABLED(NEOPIXEL_STARTUP_TEST)
+        delay(2000);
+        set_neopixel_color(pixels.Color(255, 0, 0, 0));  // red
+        delay(2000);
+        set_neopixel_color(pixels.Color(0, 255, 0, 0));  // green
+        delay(2000);
+        set_neopixel_color(pixels.Color(0, 0, 255, 0));  // blue
+        delay(2000);
+      #endif
+      set_neopixel_color(pixels.Color(0, 0, 0, 255));    // white
+    }
+
+  #endif // NEOPIXEL_RGBW_LED
+
   void set_led_color(
     const uint8_t r, const uint8_t g, const uint8_t b
-      #if ENABLED(RGBW_LED)
-        , const uint8_t w=0
+      #if ENABLED(RGBW_LED) || ENABLED(NEOPIXEL_RGBW_LED)
+        , const uint8_t w = 0
+        #if ENABLED(NEOPIXEL_RGBW_LED)
+          , bool isSequence = false
+        #endif
       #endif
   ) {
+
+    #if ENABLED(NEOPIXEL_RGBW_LED)
+
+      const uint32_t color = pixels.Color(r, g, b, w);
+      static uint16_t nextLed = 0;
+
+      if (!isSequence)
+        set_neopixel_color(color);
+      else {
+        pixels.setPixelColor(nextLed, color);
+        pixels.show();
+        if (++nextLed >= pixels.numPixels()) nextLed = 0;
+        return;
+      }
+
+    #endif
 
     #if ENABLED(BLINKM)
 
@@ -4523,6 +4575,9 @@ void home_all_axes() { gcode_G28(true); }
 
       #if ENABLED(AUTO_BED_LEVELING_BILINEAR)
 
+        #if ENABLED(PROBE_MANUALLY)
+          if (!no_action)
+        #endif
         if ( xGridSpacing != bilinear_grid_spacing[X_AXIS]
           || yGridSpacing != bilinear_grid_spacing[Y_AXIS]
           || left_probe_bed_position != LOGICAL_X_POSITION(bilinear_start[X_AXIS])
@@ -5547,12 +5602,14 @@ void home_all_axes() { gcode_G28(true); }
 
     bool G38_pass_fail = false;
 
-    // Get direction of move and retract
-    float retract_mm[XYZ];
-    LOOP_XYZ(i) {
-      float dist = destination[i] - current_position[i];
-      retract_mm[i] = FABS(dist) < G38_MINIMUM_MOVE ? 0 : home_bump_mm((AxisEnum)i) * (dist > 0 ? -1 : 1);
-    }
+    #if ENABLED(PROBE_DOUBLE_TOUCH)
+      // Get direction of move and retract
+      float retract_mm[XYZ];
+      LOOP_XYZ(i) {
+        float dist = destination[i] - current_position[i];
+        retract_mm[i] = FABS(dist) < G38_MINIMUM_MOVE ? 0 : home_bump_mm((AxisEnum)i) * (dist > 0 ? -1 : 1);
+      }
+    #endif
 
     stepper.synchronize();  // wait until the machine is idle
 
@@ -5616,7 +5673,7 @@ void home_all_axes() { gcode_G28(true); }
     // If any axis has enough movement, do the move
     LOOP_XYZ(i)
       if (FABS(destination[i] - current_position[i]) >= G38_MINIMUM_MOVE) {
-        if (!parser.seenval('F')) feedrate_mm_s = homing_feedrate(i);
+        if (!parser.seenval('F')) feedrate_mm_s = homing_feedrate((AxisEnum)i);
         // If G38.2 fails throw an error
         if (!G38_run_probe() && is_38_2) {
           SERIAL_ERROR_START();
@@ -6853,15 +6910,16 @@ inline void gcode_M42() {
 
     for (uint8_t n = 0; n < n_samples; n++) {
       if (n_legs) {
-        int dir = (random(0, 10) > 5.0) ? -1 : 1;  // clockwise or counter clockwise
-        float angle = random(0.0, 360.0),
-              radius = random(
-                #if ENABLED(DELTA)
-                  DELTA_PROBEABLE_RADIUS / 8, DELTA_PROBEABLE_RADIUS / 3
-                #else
-                  5, X_MAX_LENGTH / 8
-                #endif
-              );
+        const int dir = (random(0, 10) > 5.0) ? -1 : 1;  // clockwise or counter clockwise
+        float angle = random(0.0, 360.0);
+        const float radius = random(
+          #if ENABLED(DELTA)
+            0.1250000000 * (DELTA_PROBEABLE_RADIUS),
+            0.3333333333 * (DELTA_PROBEABLE_RADIUS)
+          #else
+            5.0, 0.125 * min(X_BED_SIZE, Y_BED_SIZE)
+          #endif
+        );
 
         if (verbose_level > 3) {
           SERIAL_ECHOPAIR("Starting radius: ", radius);
@@ -7355,7 +7413,14 @@ inline void gcode_M109() {
       // Gradually change LED strip from violet to red as nozzle heats up
       if (!wants_to_cool) {
         const uint8_t blue = map(constrain(temp, start_temp, target_temp), start_temp, target_temp, 255, 0);
-        if (blue != old_blue) set_led_color(255, 0, (old_blue = blue));
+        if (blue != old_blue) {
+          old_blue = blue;
+          set_led_color(255, 0, blue
+            #if ENABLED(NEOPIXEL_RGBW_LED)
+              , 0, true
+            #endif
+          );
+        }
       }
     #endif
 
@@ -7390,7 +7455,7 @@ inline void gcode_M109() {
   if (wait_for_heatup) {
     LCD_MESSAGEPGM(MSG_HEATING_COMPLETE);
     #if ENABLED(PRINTER_EVENT_LEDS)
-      #if ENABLED(RGBW_LED)
+      #if ENABLED(RGBW_LED) || ENABLED(NEOPIXEL_RGBW_LED)
         set_led_color(0, 0, 0, 255);  // Turn on the WHITE LED
       #else
         set_led_color(255, 255, 255); // Set LEDs All On
@@ -7488,7 +7553,14 @@ inline void gcode_M109() {
         // Gradually change LED strip from blue to violet as bed heats up
         if (!wants_to_cool) {
           const uint8_t red = map(constrain(temp, start_temp, target_temp), start_temp, target_temp, 0, 255);
-          if (red != old_red) set_led_color((old_red = red), 0, 255);
+          if (red != old_red) {
+            old_red = red;
+            set_led_color(red, 0, 255
+              #if ENABLED(NEOPIXEL_RGBW_LED)
+                , 0, true
+              #endif
+            );
+          }
         }
       #endif
 
@@ -8146,7 +8218,7 @@ inline void gcode_M121() { endstops.enable_globally(false); }
       parser.seen('R') ? (parser.has_value() ? parser.value_byte() : 255) : 0,
       parser.seen('U') ? (parser.has_value() ? parser.value_byte() : 255) : 0,
       parser.seen('B') ? (parser.has_value() ? parser.value_byte() : 255) : 0
-      #if ENABLED(RGBW_LED)
+      #if ENABLED(RGBW_LED) || ENABLED(NEOPIXEL_RGBW_LED)
         , parser.seen('W') ? (parser.has_value() ? parser.value_byte() : 255) : 0
       #endif
     );
@@ -12884,7 +12956,7 @@ void kill(const char* lcd_msg) {
   _delay_ms(250); //Wait to ensure all interrupts routines stopped
   thermalManager.disable_all_heaters(); //turn off heaters again
 
-  #if defined(ACTION_ON_KILL)
+  #ifdef ACTION_ON_KILL
     SERIAL_ECHOLNPGM("//action:" ACTION_ON_KILL);
   #endif
 
@@ -13070,6 +13142,11 @@ void setup() {
 
   #if PIN_EXISTS(STAT_LED_BLUE)
     OUT_WRITE(STAT_LED_BLUE_PIN, LOW); // turn it off
+  #endif
+
+  #if ENABLED(NEOPIXEL_RGBW_LED)
+    SET_OUTPUT(NEOPIXEL_PIN);
+    setup_neopixel();
   #endif
 
   #if ENABLED(RGB_LED) || ENABLED(RGBW_LED)
