@@ -1276,19 +1276,25 @@ inline void get_serial_commands() {
           || ((sd_char == '#' || sd_char == ':') && !sd_comment_mode)
       ) {
         if (card_eof) {
-          SERIAL_PROTOCOLLNPGM(MSG_FILE_PRINTED);
+
           card.printingHasFinished();
-          #if ENABLED(PRINTER_EVENT_LEDS)
-            LCD_MESSAGEPGM(MSG_INFO_COMPLETED_PRINTS);
-            set_led_color(0, 255, 0); // Green
-            #if HAS_RESUME_CONTINUE
-              enqueue_and_echo_commands_P(PSTR("M0")); // end of the queue!
-            #else
-              safe_delay(1000);
+
+          if (card.sdprinting)
+            sd_count = 0; // If a sub-file was printing, continue from call point
+          else {
+            SERIAL_PROTOCOLLNPGM(MSG_FILE_PRINTED);
+            #if ENABLED(PRINTER_EVENT_LEDS)
+              LCD_MESSAGEPGM(MSG_INFO_COMPLETED_PRINTS);
+              set_led_color(0, 255, 0); // Green
+              #if HAS_RESUME_CONTINUE
+                enqueue_and_echo_commands_P(PSTR("M0")); // end of the queue!
+              #else
+                safe_delay(1000);
+              #endif
+              set_led_color(0, 0, 0);   // OFF
             #endif
-            set_led_color(0, 0, 0);   // OFF
-          #endif
-          card.checkautostart(true);
+            card.checkautostart(true);
+          }
         }
         else if (n == -1) {
           SERIAL_ERROR_START();
@@ -6897,19 +6903,23 @@ inline void gcode_M31() {
 
   /**
    * M32: Select file and start SD Print
+   *
+   * Examples:
+   *
+   *    M32 !PATH/TO/FILE.GCO#      ; Start FILE.GCO
+   *    M32 P !PATH/TO/FILE.GCO#    ; Start FILE.GCO as a procedure
+   *    M32 S60 !PATH/TO/FILE.GCO#  ; Start FILE.GCO at byte 60
+   *
    */
   inline void gcode_M32() {
-    if (card.sdprinting)
-      stepper.synchronize();
-
-    char* namestartpos = parser.string_arg;
-    const bool call_procedure = parser.boolval('P');
+    if (card.sdprinting) stepper.synchronize();
 
     if (card.cardOK) {
-      card.openFile(namestartpos, true, call_procedure);
+      const bool call_procedure = parser.boolval('P');
 
-      if (parser.seenval('S'))
-        card.setIndex(parser.value_long());
+      card.openFile(parser.string_arg, true, call_procedure);
+
+      if (parser.seenval('S')) card.setIndex(parser.value_long());
 
       card.startFileprint();
 
@@ -8932,8 +8942,8 @@ inline void gcode_M205() {
         set_home_offset((AxisEnum)i, parser.value_linear_units());
 
     #if ENABLED(MORGAN_SCARA)
-      if (parser.seen('T')) set_home_offset(A_AXIS, parser.value_linear_units()); // Theta
-      if (parser.seen('P')) set_home_offset(B_AXIS, parser.value_linear_units()); // Psi
+      if (parser.seen('T')) set_home_offset(A_AXIS, parser.value_float()); // Theta
+      if (parser.seen('P')) set_home_offset(B_AXIS, parser.value_float()); // Psi
     #endif
 
     report_current_position();
@@ -9309,14 +9319,14 @@ inline void gcode_M226() {
     #if ENABLED(BABYSTEP_XY)
       for (uint8_t a = X_AXIS; a <= Z_AXIS; a++)
         if (parser.seenval(axis_codes[a]) || (a == Z_AXIS && parser.seenval('S'))) {
-          const float offs = constrain(parser.value_axis_units(a), -2, 2);
+          const float offs = constrain(parser.value_axis_units((AxisEnum)a), -2, 2);
           #if ENABLED(BABYSTEP_ZPROBE_OFFSET)
             if (a == Z_AXIS) {
               zprobe_zoffset += offs;
               refresh_zprobe_zoffset(true); // 'true' to not babystep
             }
           #endif
-          thermalManager.babystep_axis(a, offs * planner.axis_steps_per_mm[a]);
+          thermalManager.babystep_axis((AxisEnum)a, offs * planner.axis_steps_per_mm[a]);
         }
     #else
       if (parser.seenval('Z') || parser.seenval('S')) {
@@ -10315,25 +10325,30 @@ inline void gcode_M502() {
     SERIAL_ECHOLNPGM(" prewarn flag cleared");
   }
 
-  static void tmc2130_get_pwmthrs(TMC2130Stepper &st, const char name, const uint16_t spmm) {
-    SERIAL_CHAR(name);
-    SERIAL_ECHOPGM(" stealthChop max speed set to ");
-    SERIAL_ECHOLN(12650000UL * st.microsteps() / (256 * st.stealth_max_speed() * spmm));
-  }
-  static void tmc2130_set_pwmthrs(TMC2130Stepper &st, const char name, const int32_t thrs, const uint32_t spmm) {
-    st.stealth_max_speed(12650000UL * st.microsteps() / (256 * thrs * spmm));
-    tmc2130_get_pwmthrs(st, name, spmm);
-  }
+  #if ENABLED(HYBRID_THRESHOLD)
+    static void tmc2130_get_pwmthrs(TMC2130Stepper &st, const char name, const uint16_t spmm) {
+      SERIAL_CHAR(name);
+      SERIAL_ECHOPGM(" stealthChop max speed set to ");
+      SERIAL_ECHOLN(12650000UL * st.microsteps() / (256 * st.stealth_max_speed() * spmm));
+    }
 
-  static void tmc2130_get_sgt(TMC2130Stepper &st, const char name) {
-    SERIAL_CHAR(name);
-    SERIAL_ECHOPGM(" driver homing sensitivity set to ");
-    SERIAL_ECHOLN(st.sgt());
-  }
-  static void tmc2130_set_sgt(TMC2130Stepper &st, const char name, const int8_t sgt_val) {
-    st.sgt(sgt_val);
-    tmc2130_get_sgt(st, name);
-  }
+    static void tmc2130_set_pwmthrs(TMC2130Stepper &st, const char name, const int32_t thrs, const uint32_t spmm) {
+      st.stealth_max_speed(12650000UL * st.microsteps() / (256 * thrs * spmm));
+      tmc2130_get_pwmthrs(st, name, spmm);
+    }
+  #endif
+
+  #if ENABLED(SENSORLESS_HOMING)
+    static void tmc2130_get_sgt(TMC2130Stepper &st, const char name) {
+      SERIAL_CHAR(name);
+      SERIAL_ECHOPGM(" driver homing sensitivity set to ");
+      SERIAL_ECHOLN(st.sgt());
+    }
+    static void tmc2130_set_sgt(TMC2130Stepper &st, const char name, const int8_t sgt_val) {
+      st.sgt(sgt_val);
+      tmc2130_get_sgt(st, name);
+    }
+  #endif
 
   /**
    * M906: Set motor current in milliamps using axis codes X, Y, Z, E
@@ -13308,48 +13323,27 @@ void prepare_move_to_destination() {
         #if !AVR_AT90USB1286_FAMILY
           case TIMER0A:
         #endif
-        case TIMER0B:
-          //_SET_CS(0, val);
-          break;
+        case TIMER0B:                           //_SET_CS(0, val);
+                                                  break;
       #endif
-      #ifdef TCCR1A
-        case TIMER1A:
-        case TIMER1B:
-          //_SET_CS(1, val);
-          break;
+      #ifdef TCCR1A 
+        case TIMER1A: case TIMER1B:             //_SET_CS(1, val);
+                                                  break;
       #endif
-      #ifdef TCCR2
-        case TIMER2:
-        case TIMER2:
-          _SET_CS(2, val);
-          break;
+      #ifdef TCCR2 
+        case TIMER2: case TIMER2:                 _SET_CS(2, val); break;
       #endif
-      #ifdef TCCR2A
-        case TIMER2A:
-        case TIMER2B:
-          _SET_CS(2, val);
-          break;
+      #ifdef TCCR2A 
+        case TIMER2A: case TIMER2B:               _SET_CS(2, val); break;
       #endif
-      #ifdef TCCR3A
-        case TIMER3A:
-        case TIMER3B:
-        case TIMER3C:
-          _SET_CS(3, val);
-          break;
+      #ifdef TCCR3A 
+        case TIMER3A: case TIMER3B: case TIMER3C: _SET_CS(3, val); break;
       #endif
-      #ifdef TCCR4A
-        case TIMER4A:
-        case TIMER4B:
-        case TIMER4C:
-          _SET_CS(4, val);
-          break;
+      #ifdef TCCR4A 
+        case TIMER4A: case TIMER4B: case TIMER4C: _SET_CS(4, val); break;
       #endif
-      #ifdef TCCR5A
-        case TIMER5A:
-        case TIMER5B:
-        case TIMER5C:
-          _SET_CS(5, val);
-          break;
+      #ifdef TCCR5A 
+        case TIMER5A: case TIMER5B: case TIMER5C: _SET_CS(5, val); break;
       #endif
     }
   }
