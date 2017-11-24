@@ -59,7 +59,7 @@
  * G19  - Select Plane YZ (Requires CNC_WORKSPACE_PLANES)
  * G20  - Set input units to inches (Requires INCH_MODE_SUPPORT)
  * G21  - Set input units to millimeters (Requires INCH_MODE_SUPPORT)
- * G26  - Mesh Validation Pattern (Requires UBL_G26_MESH_VALIDATION)
+ * G26  - Mesh Validation Pattern (Requires G26_MESH_VALIDATION)
  * G27  - Park Nozzle (Requires NOZZLE_PARK_FEATURE)
  * G28  - Home one or more axes
  * G29  - Start or continue the bed leveling probe procedure (Requires bed leveling)
@@ -68,7 +68,7 @@
  * G32  - Undock sled (Z_PROBE_SLED only)
  * G33  - Delta Auto-Calibration (Requires DELTA_AUTO_CALIBRATION)
  * G38  - Probe in any direction using the Z_MIN_PROBE (Requires G38_PROBE_TARGET)
- * G42  - Coordinated move to a mesh point (Requires AUTO_BED_LEVELING_UBL)
+ * G42  - Coordinated move to a mesh point (Requires MESH_BED_LEVELING, AUTO_BED_LEVELING_BLINEAR, or AUTO_BED_LEVELING_UBL)
  * G90  - Use Absolute Coordinates
  * G91  - Use Relative Coordinates
  * G92  - Set current position to coordinates given
@@ -324,6 +324,11 @@
 #if ENABLED(M100_FREE_MEMORY_WATCHER)
   void gcode_M100();
   void M100_dump_routine(const char * const title, const char *start, const char *end);
+#endif
+
+#if ENABLED(G26_MESH_VALIDATION)
+  bool g26_debug_flag; // =false
+  void gcode_G26();
 #endif
 
 #if ENABLED(SDSUPPORT)
@@ -6188,25 +6193,14 @@ void home_all_axes() { gcode_G28(true); }
 
     if (IsRunning()) {
       const bool hasI = parser.seenval('I');
-      const int8_t ix = RAW_X_POSITION(hasI ? parser.value_linear_units() : 0);
+      const int8_t ix = hasI ? parser.value_int() : 0;
       const bool hasJ = parser.seenval('J');
-      const int8_t iy = RAW_Y_POSITION(hasJ ? parser.value_linear_units() : 0);
+      const int8_t iy = hasJ ? parser.value_int() : 0;
 
       if ((hasI && !WITHIN(ix, 0, GRID_MAX_POINTS_X - 1)) || (hasJ && !WITHIN(iy, 0, GRID_MAX_POINTS_Y - 1))) {
         SERIAL_ECHOLNPGM(MSG_ERR_MESH_XY);
         return;
       }
-
-      #if ENABLED(AUTO_BED_LEVELING_BILINEAR)
-        #define _GET_MESH_X(I) bilinear_start[X_AXIS] + I * bilinear_grid_spacing[X_AXIS]
-        #define _GET_MESH_Y(J) bilinear_start[Y_AXIS] + J * bilinear_grid_spacing[Y_AXIS]
-      #elif ENABLED(AUTO_BED_LEVELING_UBL)
-        #define _GET_MESH_X(I) ubl.mesh_index_to_xpos(I)
-        #define _GET_MESH_Y(J) ubl.mesh_index_to_ypos(J)
-      #elif ENABLED(MESH_BED_LEVELING)
-        #define _GET_MESH_X(I) mbl.index_to_xpos[I]
-        #define _GET_MESH_Y(J) mbl.index_to_ypos[J]
-      #endif
 
       set_destination_from_current();
       if (hasI) destination[X_AXIS] = _GET_MESH_X(ix);
@@ -7027,7 +7021,7 @@ inline void gcode_M42() {
     const bool I_flag = parser.boolval('I');
     const int repeat = parser.intval('R', 1),
               start = parser.intval('S'),
-              end = parser.intval('E', NUM_DIGITAL_PINS - 1),
+              end = parser.intval('L', NUM_DIGITAL_PINS - 1),
               wait = parser.intval('W', 500);
 
     for (uint8_t pin = start; pin <= end; pin++) {
@@ -7567,15 +7561,15 @@ inline void gcode_M42() {
 
 #endif // Z_MIN_PROBE_REPEATABILITY_TEST
 
-#if ENABLED(AUTO_BED_LEVELING_UBL) && ENABLED(UBL_G26_MESH_VALIDATION)
+#if ENABLED(G26_MESH_VALIDATION)
 
   inline void gcode_M49() {
-    ubl.g26_debug_flag ^= true;
-    SERIAL_PROTOCOLPGM("UBL Debug Flag turned ");
-    serialprintPGM(ubl.g26_debug_flag ? PSTR("on.") : PSTR("off."));
+    g26_debug_flag ^= true;
+    SERIAL_PROTOCOLPGM("G26 Debug ");
+    serialprintPGM(g26_debug_flag ? PSTR("on.") : PSTR("off."));
   }
 
-#endif // AUTO_BED_LEVELING_UBL && UBL_G26_MESH_VALIDATION
+#endif // G26_MESH_VALIDATION
 
 #if ENABLED(ULTRA_LCD) && ENABLED(LCD_SET_PROGRESS_MANUALLY)
   /**
@@ -8414,7 +8408,7 @@ inline void gcode_M18_M84() {
     }
 
     #if ENABLED(AUTO_BED_LEVELING_UBL) && ENABLED(ULTRA_LCD)  // Only needed with an LCD
-      ubl_lcd_map_control = defer_return_to_status = false;
+      ubl.lcd_map_control = defer_return_to_status = false;
     #endif
   }
 }
@@ -9320,22 +9314,17 @@ inline void gcode_M226() {
       for (uint8_t a = X_AXIS; a <= Z_AXIS; a++)
         if (parser.seenval(axis_codes[a]) || (a == Z_AXIS && parser.seenval('S'))) {
           const float offs = constrain(parser.value_axis_units((AxisEnum)a), -2, 2);
-          #if ENABLED(BABYSTEP_ZPROBE_OFFSET)
-            if (a == Z_AXIS) {
-              zprobe_zoffset += offs;
-              refresh_zprobe_zoffset(true); // 'true' to not babystep
-            }
-          #endif
           thermalManager.babystep_axis((AxisEnum)a, offs * planner.axis_steps_per_mm[a]);
+          #if ENABLED(BABYSTEP_ZPROBE_OFFSET)
+            zprobe_zoffset += offs;
+          #endif
         }
     #else
       if (parser.seenval('Z') || parser.seenval('S')) {
         const float offs = constrain(parser.value_axis_units(Z_AXIS), -2, 2);
+        thermalManager.babystep_axis(Z_AXIS, offs * planner.axis_steps_per_mm[Z_AXIS]);
         #if ENABLED(BABYSTEP_ZPROBE_OFFSET)
           zprobe_zoffset += offs;
-          refresh_zprobe_zoffset(); // This will babystep the axis
-        #else
-          thermalManager.babystep_axis(Z_AXIS, offs * planner.axis_steps_per_mm[Z_AXIS]);
         #endif
       }
     #endif
@@ -9694,6 +9683,7 @@ inline void gcode_M400() { stepper.synchronize(); }
   inline void gcode_M404() {
     if (parser.seen('W')) {
       filament_width_nominal = parser.value_linear_units();
+      planner.volumetric_area_nominal = CIRCLE_AREA(filament_width_nominal * 0.5);
     }
     else {
       SERIAL_PROTOCOLPGM("Filament dia (nominal mm):");
@@ -10039,42 +10029,6 @@ inline void gcode_M502() {
 
 #if HAS_BED_PROBE
 
-  void refresh_zprobe_zoffset(const bool no_babystep/*=false*/) {
-    static float last_zoffset = NAN;
-
-    if (!isnan(last_zoffset)) {
-
-      #if ENABLED(AUTO_BED_LEVELING_BILINEAR) || ENABLED(BABYSTEP_ZPROBE_OFFSET) || ENABLED(DELTA)
-        const float diff = zprobe_zoffset - last_zoffset;
-      #endif
-
-      #if ENABLED(AUTO_BED_LEVELING_BILINEAR)
-        // Correct bilinear grid for new probe offset
-        if (diff) {
-          for (uint8_t x = 0; x < GRID_MAX_POINTS_X; x++)
-            for (uint8_t y = 0; y < GRID_MAX_POINTS_Y; y++)
-              z_values[x][y] -= diff;
-        }
-        #if ENABLED(ABL_BILINEAR_SUBDIVISION)
-          bed_level_virt_interpolate();
-        #endif
-      #endif
-
-      #if ENABLED(BABYSTEP_ZPROBE_OFFSET)
-        if (!no_babystep && planner.leveling_active)
-          thermalManager.babystep_axis(Z_AXIS, -LROUND(diff * planner.axis_steps_per_mm[Z_AXIS]));
-      #else
-        UNUSED(no_babystep);
-      #endif
-
-      #if ENABLED(DELTA) // correct the delta_height
-        delta_height -= diff;
-      #endif
-    }
-
-    last_zoffset = zprobe_zoffset;
-  }
-
   inline void gcode_M851() {
     SERIAL_ECHO_START();
     SERIAL_ECHOPGM(MSG_ZPROBE_ZOFFSET " ");
@@ -10082,7 +10036,6 @@ inline void gcode_M502() {
       const float value = parser.value_linear_units();
       if (WITHIN(value, Z_PROBE_OFFSET_RANGE_MIN, Z_PROBE_OFFSET_RANGE_MAX)) {
         zprobe_zoffset = value;
-        refresh_zprobe_zoffset();
         SERIAL_ECHO(zprobe_zoffset);
       }
       else
@@ -11162,22 +11115,22 @@ void tool_change(const uint8_t tmp_extruder, const float fr_mm_s/*=0.0*/, bool n
         SYNC_PLAN_POSITION_KINEMATIC();
 
         // Move to the "old position" (move the extruder into place)
+        #if ENABLED(SWITCHING_NOZZLE)
+          destination[Z_AXIS] += z_diff;  // Include the Z restore with the "move back"
+        #endif
         if (!no_move && IsRunning()) {
           #if ENABLED(DEBUG_LEVELING_FEATURE)
             if (DEBUGGING(LEVELING)) DEBUG_POS("Move back", destination);
           #endif
-          prepare_move_to_destination();
+          // Move back to the original (or tweaked) position
+          do_blocking_move_to(destination[X_AXIS], destination[Y_AXIS], destination[Z_AXIS]);
         }
-
         #if ENABLED(SWITCHING_NOZZLE)
-          // Move back down, if needed. (Including when the new tool is higher.)
-          if (z_raise != z_diff) {
-            destination[Z_AXIS] += z_diff;
-            feedrate_mm_s = planner.max_feedrate_mm_s[Z_AXIS];
-            prepare_move_to_destination();
+          else {
+            // Move back down. (Including when the new tool is higher.)
+            do_blocking_move_to_z(destination[Z_AXIS], planner.max_feedrate_mm_s[Z_AXIS]);
           }
         #endif
-
       } // (tmp_extruder != active_extruder)
 
       stepper.synchronize();
@@ -11336,11 +11289,11 @@ void process_parsed_command() {
           break;
       #endif // INCH_MODE_SUPPORT
 
-      #if ENABLED(AUTO_BED_LEVELING_UBL) && ENABLED(UBL_G26_MESH_VALIDATION)
+      #if ENABLED(G26_MESH_VALIDATION)
         case 26: // G26: Mesh Validation Pattern generation
           gcode_G26();
           break;
-      #endif // AUTO_BED_LEVELING_UBL
+      #endif // G26_MESH_VALIDATION
 
       #if ENABLED(NOZZLE_PARK_FEATURE)
         case 27: // G27: Nozzle Park
@@ -11500,11 +11453,11 @@ void process_parsed_command() {
           break;
       #endif // Z_MIN_PROBE_REPEATABILITY_TEST
 
-      #if ENABLED(AUTO_BED_LEVELING_UBL) && ENABLED(UBL_G26_MESH_VALIDATION)
+      #if ENABLED(G26_MESH_VALIDATION)
         case 49: // M49: Turn on or off G26 debug flag for verbose output
           gcode_M49();
           break;
-      #endif // AUTO_BED_LEVELING_UBL && UBL_G26_MESH_VALIDATION
+      #endif // G26_MESH_VALIDATION
 
       #if ENABLED(ULTRA_LCD) && ENABLED(LCD_SET_PROGRESS_MANUALLY)
         case 73: // M73: Set print progress percentage
@@ -12419,7 +12372,7 @@ void ok_to_send() {
     float cartesian[XYZ] = { 0, 0, 0 };
     inverse_kinematics(cartesian);
     float distance = delta[A_AXIS];
-    cartesian[Y_AXIS] = LOGICAL_Y_POSITION(DELTA_PRINTABLE_RADIUS);
+    cartesian[Y_AXIS] = DELTA_PRINTABLE_RADIUS;
     inverse_kinematics(cartesian);
     return FABS(distance - delta[A_AXIS]);
   }
@@ -13326,23 +13279,23 @@ void prepare_move_to_destination() {
         case TIMER0B:                           //_SET_CS(0, val);
                                                   break;
       #endif
-      #ifdef TCCR1A 
+      #ifdef TCCR1A
         case TIMER1A: case TIMER1B:             //_SET_CS(1, val);
                                                   break;
       #endif
-      #ifdef TCCR2 
+      #ifdef TCCR2
         case TIMER2: case TIMER2:                 _SET_CS(2, val); break;
       #endif
-      #ifdef TCCR2A 
+      #ifdef TCCR2A
         case TIMER2A: case TIMER2B:               _SET_CS(2, val); break;
       #endif
-      #ifdef TCCR3A 
+      #ifdef TCCR3A
         case TIMER3A: case TIMER3B: case TIMER3C: _SET_CS(3, val); break;
       #endif
-      #ifdef TCCR4A 
+      #ifdef TCCR4A
         case TIMER4A: case TIMER4B: case TIMER4C: _SET_CS(4, val); break;
       #endif
-      #ifdef TCCR5A 
+      #ifdef TCCR5A
         case TIMER5A: case TIMER5B: case TIMER5C: _SET_CS(5, val); break;
       #endif
     }
@@ -13524,7 +13477,7 @@ void manage_inactivity(bool ignore_stepper_queue/*=false*/) {
       disable_e_steppers();
     #endif
     #if ENABLED(AUTO_BED_LEVELING_UBL) && ENABLED(ULTRA_LCD)  // Only needed with an LCD
-      ubl_lcd_map_control = defer_return_to_status = false;
+      ubl.lcd_map_control = defer_return_to_status = false;
     #endif
   }
 
@@ -13945,9 +13898,6 @@ void setup() {
 
   #if ENABLED(SHOW_BOOTSCREEN)
     lcd_bootscreen();
-    #if ENABLED(ULTRA_LCD) && DISABLED(SDSUPPORT)
-      lcd_init();
-    #endif
   #endif
 
   #if ENABLED(MIXING_EXTRUDER) && MIXING_VIRTUAL_TOOLS > 1
