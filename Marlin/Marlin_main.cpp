@@ -205,6 +205,7 @@
  * M666 - Set delta endstop adjustment. (Requires DELTA)
  * M605 - Set dual x-carriage movement mode: "M605 S<mode> [X<x_offset>] [R<temp_offset>]". (Requires DUAL_X_CARRIAGE)
  * M851 - Set Z probe's Z offset in current units. (Negative = below the nozzle.)
+ * M852 - Set skew factors: "M852 [I<xy>] [J<xz>] [K<yz>]". (Requires SKEW_CORRECTION_GCODE, and SKEW_CORRECTION_FOR_Z for IJ)
  * M860 - Report the position of position encoder modules.
  * M861 - Report the status of position encoder modules.
  * M862 - Perform an axis continuity test for position encoder modules.
@@ -284,17 +285,8 @@
   #include "Max7219_Debug_LEDs.h"
 #endif
 
-#if ENABLED(NEOPIXEL_LED)
-  #include <Adafruit_NeoPixel.h>
-#endif
-
-#if ENABLED(BLINKM)
-  #include "blinkm.h"
-  #include "Wire.h"
-#endif
-
-#if ENABLED(PCA9632)
-  #include "pca9632.h"
+#if HAS_COLOR_LEDS
+  #include "leds.h"
 #endif
 
 #if HAS_SERVOS
@@ -353,20 +345,6 @@
                            && ubl.z_values[2][0] == ubl.z_values[2][1] && ubl.z_values[2][1] == ubl.z_values[2][2] \
                            && ubl.z_values[0][0] == 0 && ubl.z_values[1][0] == 0 && ubl.z_values[2][0] == 0 )  \
                            || isnan(ubl.z_values[0][0]))
-#endif
-
-#if ENABLED(NEOPIXEL_LED)
-  #if NEOPIXEL_TYPE == NEO_RGB || NEOPIXEL_TYPE == NEO_RBG || NEOPIXEL_TYPE == NEO_GRB || NEOPIXEL_TYPE == NEO_GBR || NEOPIXEL_TYPE == NEO_BRG || NEOPIXEL_TYPE == NEO_BGR
-    #define NEO_WHITE 255, 255, 255
-  #else
-    #define NEO_WHITE 0, 0, 0, 255
-  #endif
-#endif
-
-#if ENABLED(RGB_LED) || ENABLED(BLINKM) || ENABLED(PCA9632)
-  #define LED_WHITE 255, 255, 255
-#elif ENABLED(RGBW_LED)
-  #define LED_WHITE 0, 0, 0, 255
 #endif
 
 #if ENABLED(CNC_COORDINATE_SYSTEMS)
@@ -1013,98 +991,6 @@ void servo_init() {
 
 #endif
 
-#if HAS_COLOR_LEDS
-
-  #if ENABLED(NEOPIXEL_LED)
-
-    Adafruit_NeoPixel pixels(NEOPIXEL_PIXELS, NEOPIXEL_PIN, NEOPIXEL_TYPE + NEO_KHZ800);
-
-    void set_neopixel_color(const uint32_t color) {
-      for (uint16_t i = 0; i < pixels.numPixels(); ++i)
-        pixels.setPixelColor(i, color);
-      pixels.show();
-    }
-
-    void setup_neopixel() {
-      pixels.setBrightness(NEOPIXEL_BRIGHTNESS); // 0 - 255 range
-      pixels.begin();
-      pixels.show(); // initialize to all off
-
-      #if ENABLED(NEOPIXEL_STARTUP_TEST)
-        safe_delay(1000);
-        set_neopixel_color(pixels.Color(255, 0, 0, 0));  // red
-        safe_delay(1000);
-        set_neopixel_color(pixels.Color(0, 255, 0, 0));  // green
-        safe_delay(1000);
-        set_neopixel_color(pixels.Color(0, 0, 255, 0));  // blue
-        safe_delay(1000);
-      #endif
-      set_neopixel_color(pixels.Color(NEO_WHITE));       // white
-    }
-
-  #endif // NEOPIXEL_LED
-
-  void set_led_color(
-    const uint8_t r, const uint8_t g, const uint8_t b
-      #if ENABLED(RGBW_LED) || ENABLED(NEOPIXEL_LED)
-        , const uint8_t w = 0
-        #if ENABLED(NEOPIXEL_LED)
-          , const uint8_t p = NEOPIXEL_BRIGHTNESS
-          , bool isSequence = false
-        #endif
-      #endif
-  ) {
-
-    #if ENABLED(NEOPIXEL_LED)
-
-      const uint32_t color = pixels.Color(r, g, b, w);
-      static uint16_t nextLed = 0;
-
-      pixels.setBrightness(p);
-      if (!isSequence)
-        set_neopixel_color(color);
-      else {
-        pixels.setPixelColor(nextLed, color);
-        pixels.show();
-        if (++nextLed >= pixels.numPixels()) nextLed = 0;
-        return;
-      }
-
-    #endif
-
-    #if ENABLED(BLINKM)
-
-      // This variant uses i2c to send the RGB components to the device.
-      SendColors(r, g, b);
-
-    #endif
-
-    #if ENABLED(RGB_LED) || ENABLED(RGBW_LED)
-
-      // This variant uses 3 separate pins for the RGB components.
-      // If the pins can do PWM then their intensity will be set.
-      WRITE(RGB_LED_R_PIN, r ? HIGH : LOW);
-      WRITE(RGB_LED_G_PIN, g ? HIGH : LOW);
-      WRITE(RGB_LED_B_PIN, b ? HIGH : LOW);
-      analogWrite(RGB_LED_R_PIN, r);
-      analogWrite(RGB_LED_G_PIN, g);
-      analogWrite(RGB_LED_B_PIN, b);
-
-      #if ENABLED(RGBW_LED)
-        WRITE(RGB_LED_W_PIN, w ? HIGH : LOW);
-        analogWrite(RGB_LED_W_PIN, w);
-      #endif
-
-    #endif
-
-    #if ENABLED(PCA9632)
-      // Update I2C LED driver
-      PCA9632_SetColor(r, g, b);
-    #endif
-  }
-
-#endif // HAS_COLOR_LEDS
-
 void gcode_line_error(const char* err, bool doFlush = true) {
   SERIAL_ERROR_START();
   serialprintPGM(err);
@@ -1290,13 +1176,13 @@ inline void get_serial_commands() {
             SERIAL_PROTOCOLLNPGM(MSG_FILE_PRINTED);
             #if ENABLED(PRINTER_EVENT_LEDS)
               LCD_MESSAGEPGM(MSG_INFO_COMPLETED_PRINTS);
-              set_led_color(0, 255, 0); // Green
+              leds.set_green();
               #if HAS_RESUME_CONTINUE
                 enqueue_and_echo_commands_P(PSTR("M0")); // end of the queue!
               #else
                 safe_delay(1000);
               #endif
-              set_led_color(0, 0, 0);   // OFF
+              leds.set_off();
             #endif
             card.checkautostart(true);
           }
@@ -2417,8 +2303,8 @@ static void clean_up_after_endstop_or_probe_move() {
       ny -= (Y_PROBE_OFFSET_FROM_EXTRUDER);
     }
     else if (!position_is_reachable(nx, ny)) return NAN;        // The given position is in terms of the nozzle
-  
-    const float nz = 
+
+    const float nz =
       #if ENABLED(DELTA)
         // Move below clip height or xy move will be aborted by do_blocking_move_to
         min(current_position[Z_AXIS], delta_clip_start_height)
@@ -3446,7 +3332,7 @@ inline void gcode_G0_G1(
     #else
       prepare_move_to_destination();
     #endif
-	
+
     #if ENABLED(NANODLP_Z_SYNC)
       // If G0/G1 command include Z-axis, wait for move and output sync text.
       if (parser.seenval('Z')) {
@@ -5666,7 +5552,7 @@ void home_all_axes() { gcode_G28(true); }
         recalc_delta_settings();
 
         endstops.enable(true);
-        if (!home_delta()) return;
+        if (!home_delta()) return false;
         endstops.not_homing();
 
         SERIAL_PROTOCOLPGM("Tuning E");
@@ -5698,7 +5584,7 @@ void home_all_axes() { gcode_G28(true); }
         recalc_delta_settings();
 
         endstops.enable(true);
-        if (!home_delta()) return;
+        if (!home_delta()) return false;
         endstops.not_homing();
 
         SERIAL_PROTOCOLPGM("Tuning R");
@@ -5724,7 +5610,7 @@ void home_all_axes() { gcode_G28(true); }
         recalc_delta_settings();
 
         endstops.enable(true);
-        if (!home_delta()) return;
+        if (!home_delta()) return false;
         endstops.not_homing();
 
         SERIAL_PROTOCOLPGM("Tuning T");
@@ -5758,7 +5644,7 @@ void home_all_axes() { gcode_G28(true); }
       a_fac *= norm; // Normalize to 0.83 for Kossel mini
 
       endstops.enable(true);
-      if (!home_delta()) return;
+      if (!home_delta()) return false;
       endstops.not_homing();
       print_signed_float(PSTR( "H_FACTOR: "), h_fac);
       print_signed_float(PSTR(" R_FACTOR: "), r_fac);
@@ -7987,14 +7873,11 @@ inline void gcode_M109() {
         const uint8_t blue = map(constrain(temp, start_temp, target_temp), start_temp, target_temp, 255, 0);
         if (blue != old_blue) {
           old_blue = blue;
-          set_led_color(255, 0, blue
-          #if ENABLED(NEOPIXEL_LED)
-            , 0
-            , pixels.getBrightness()
+          leds.set_color(
+            MakeLEDColor(255, 0, blue, 0, pixels.getBrightness())
             #if ENABLED(NEOPIXEL_IS_SEQUENTIAL)
               , true
             #endif
-          #endif
           );
         }
       }
@@ -8031,12 +7914,7 @@ inline void gcode_M109() {
   if (wait_for_heatup) {
     LCD_MESSAGEPGM(MSG_HEATING_COMPLETE);
     #if ENABLED(PRINTER_EVENT_LEDS)
-      #if ENABLED(RGB_LED) || ENABLED(BLINKM) || ENABLED(PCA9632) || ENABLED(RGBW_LED)
-        set_led_color(LED_WHITE);
-      #endif
-      #if ENABLED(NEOPIXEL_LED)
-        set_neopixel_color(pixels.Color(NEO_WHITE));
-      #endif
+      leds.set_white();
     #endif
   }
 
@@ -8132,12 +8010,10 @@ inline void gcode_M109() {
           const uint8_t red = map(constrain(temp, start_temp, target_temp), start_temp, target_temp, 0, 255);
           if (red != old_red) {
             old_red = red;
-            set_led_color(red, 0, 255
-              #if ENABLED(NEOPIXEL_LED)
-                , 0, pixels.getBrightness()
-                #if ENABLED(NEOPIXEL_IS_SEQUENTIAL)
-                  , true
-                #endif
+            leds.set_color(
+              MakeLEDColor(red, 0, 255, 0, pixels.getBrightness())
+              #if ENABLED(NEOPIXEL_IS_SEQUENTIAL)
+                , true
               #endif
             );
           }
@@ -8814,17 +8690,13 @@ inline void gcode_M121() { endstops.enable_globally(false); }
    *   M150 P          ; Set LED full brightness
    */
   inline void gcode_M150() {
-    set_led_color(
+    leds.set_color(MakeLEDColor(
       parser.seen('R') ? (parser.has_value() ? parser.value_byte() : 255) : 0,
       parser.seen('U') ? (parser.has_value() ? parser.value_byte() : 255) : 0,
-      parser.seen('B') ? (parser.has_value() ? parser.value_byte() : 255) : 0
-      #if ENABLED(RGBW_LED) || ENABLED(NEOPIXEL_LED)
-        , parser.seen('W') ? (parser.has_value() ? parser.value_byte() : 255) : 0
-        #if ENABLED(NEOPIXEL_LED)
-          , parser.seen('P') ? (parser.has_value() ? parser.value_byte() : 255) : pixels.getBrightness()
-        #endif
-      #endif
-    );
+      parser.seen('B') ? (parser.has_value() ? parser.value_byte() : 255) : 0,
+      parser.seen('W') ? (parser.has_value() ? parser.value_byte() : 255) : 0,
+      parser.seen('P') ? (parser.has_value() ? parser.value_byte() : 255) : pixels.getBrightness()
+    ));
   }
 
 #endif // HAS_COLOR_LEDS
@@ -8843,12 +8715,8 @@ inline void gcode_M200() {
     // setting any extruder filament size disables volumetric on the assumption that
     // slicers either generate in extruder values as cubic mm or as as filament feeds
     // for all extruders
-    if ( (parser.volumetric_enabled = (parser.value_linear_units() != 0.0)) ) {
-      planner.filament_size[target_extruder] = parser.value_linear_units();
-      // make sure all extruders have some sane value for the filament size
-      for (uint8_t i = 0; i < COUNT(planner.filament_size); i++)
-        if (!planner.filament_size[i]) planner.filament_size[i] = DEFAULT_NOMINAL_FILAMENT_DIA;
-    }
+    if ( (parser.volumetric_enabled = (parser.value_linear_units() != 0.0)) )
+      planner.set_filament_size(target_extruder, parser.value_linear_units());
   }
   planner.calculate_volumetric_multipliers();
 }
@@ -9346,7 +9214,7 @@ inline void gcode_M226() {
           const float offs = constrain(parser.value_axis_units((AxisEnum)a), -2, 2);
           thermalManager.babystep_axis((AxisEnum)a, offs * planner.axis_steps_per_mm[a]);
           #if ENABLED(BABYSTEP_ZPROBE_OFFSET)
-            if (a == Z_AXIS && parser.boolval('P', true)) mod_zprobe_zoffset(offs);
+            if (a == Z_AXIS && (!parser.seen('P') || parser.value_bool())) mod_zprobe_zoffset(offs);
           #endif
         }
     #else
@@ -9354,7 +9222,7 @@ inline void gcode_M226() {
         const float offs = constrain(parser.value_axis_units(Z_AXIS), -2, 2);
         thermalManager.babystep_axis(Z_AXIS, offs * planner.axis_steps_per_mm[Z_AXIS]);
         #if ENABLED(BABYSTEP_ZPROBE_OFFSET)
-          if (parser.boolval('P', true)) mod_zprobe_zoffset(offs);
+          if (!parser.seen('P') || parser.value_bool()) mod_zprobe_zoffset(offs);
         #endif
       }
     #endif
@@ -10074,6 +9942,69 @@ inline void gcode_M502() {
   }
 
 #endif // HAS_BED_PROBE
+
+#if ENABLED(SKEW_CORRECTION_GCODE)
+
+  /**
+   * M852: Get or set the machine skew factors. Reports current values with no arguments.
+   *
+   *  S[xy_factor] - Alias for 'I'
+   *  I[xy_factor] - New XY skew factor
+   *  J[xz_factor] - New XZ skew factor
+   *  K[yz_factor] - New YZ skew factor
+   */
+  inline void gcode_M852() {
+    const bool ijk = parser.seen('I') || parser.seen('S')
+      #if ENABLED(SKEW_CORRECTION_FOR_Z)
+        || parser.seen('J') || parser.seen('K')
+      #endif
+    ;
+    bool badval = false;
+
+    if (parser.seen('I') || parser.seen('S')) {
+      const float value = parser.value_linear_units();
+      if (WITHIN(value, SKEW_FACTOR_MIN, SKEW_FACTOR_MAX))
+        planner.xy_skew_factor = value;
+      else
+        badval = true;
+    }
+
+    #if ENABLED(SKEW_CORRECTION_FOR_Z)
+
+      if (parser.seen('J')) {
+        const float value = parser.value_linear_units();
+        if (WITHIN(value, SKEW_FACTOR_MIN, SKEW_FACTOR_MAX))
+          planner.xz_skew_factor = value;
+        else
+          badval = true;
+      }
+
+      if (parser.seen('K')) {
+        const float value = parser.value_linear_units();
+        if (WITHIN(value, SKEW_FACTOR_MIN, SKEW_FACTOR_MAX))
+          planner.yz_skew_factor = value;
+        else
+          badval = true;
+      }
+
+    #endif
+
+    if (badval)
+      SERIAL_ECHOLNPGM(MSG_SKEW_MIN " " STRINGIFY(SKEW_FACTOR_MIN) " " MSG_SKEW_MAX " " STRINGIFY(SKEW_FACTOR_MAX));
+
+    if (!ijk) {
+      SERIAL_ECHO_START();
+      SERIAL_ECHOPAIR(MSG_SKEW_FACTOR " XY: ", planner.xy_skew_factor);
+      #if ENABLED(SKEW_CORRECTION_FOR_Z)
+        SERIAL_ECHOPAIR(" XZ: ", planner.xz_skew_factor);
+        SERIAL_ECHOLNPAIR(" YZ: ", planner.yz_skew_factor);
+      #else
+        SERIAL_EOL();
+      #endif
+    }
+  }
+
+#endif // SKEW_CORRECTION_GCODE
 
 #if ENABLED(ADVANCED_PAUSE_FEATURE)
 
@@ -11920,6 +11851,12 @@ void process_parsed_command() {
           break;
       #endif // HAS_BED_PROBE
 
+      #if ENABLED(SKEW_CORRECTION_GCODE)
+        case 852: // M852: Set Skew factors
+          gcode_M852();
+          break;
+      #endif
+
       #if ENABLED(ADVANCED_PAUSE_FEATURE)
         case 600: // M600: Pause for filament change
           gcode_M600();
@@ -12531,7 +12468,81 @@ void set_current_from_steppers_for_axis(const AxisEnum axis) {
     current_position[axis] = cartes[axis];
 }
 
-#if ENABLED(MESH_BED_LEVELING)
+#if IS_CARTESIAN
+#if ENABLED(SEGMENT_LEVELED_MOVES)
+
+  /**
+   * Prepare a segmented move on a CARTESIAN setup.
+   *
+   * This calls planner.buffer_line several times, adding
+   * small incremental moves. This allows the planner to
+   * apply more detailed bed leveling to the full move.
+   */
+  inline void segmented_line_to_destination(const float fr_mm_s, const float segment_size=LEVELED_SEGMENT_LENGTH) {
+
+    const float xdiff = destination[X_AXIS] - current_position[X_AXIS],
+                ydiff = destination[Y_AXIS] - current_position[Y_AXIS];
+
+    // If the move is only in Z/E don't split up the move
+    if (!xdiff && !ydiff) {
+      planner.buffer_line_kinematic(destination, fr_mm_s, active_extruder);
+      return;
+    }
+
+    // Remaining cartesian distances
+    const float zdiff = destination[Z_AXIS] - current_position[Z_AXIS],
+                ediff = destination[E_AXIS] - current_position[E_AXIS];
+
+    // Get the linear distance in XYZ
+    // If the move is very short, check the E move distance
+    // No E move either? Game over.
+    float cartesian_mm = SQRT(sq(xdiff) + sq(ydiff) + sq(zdiff));
+    if (UNEAR_ZERO(cartesian_mm)) cartesian_mm = FABS(ediff);
+    if (UNEAR_ZERO(cartesian_mm)) return;
+
+    // The length divided by the segment size
+    // At least one segment is required
+    uint16_t segments = cartesian_mm / segment_size;
+    NOLESS(segments, 1);
+
+    // The approximate length of each segment
+    const float inv_segments = 1.0 / float(segments),
+                segment_distance[XYZE] = {
+                  xdiff * inv_segments,
+                  ydiff * inv_segments,
+                  zdiff * inv_segments,
+                  ediff * inv_segments
+                };
+
+    // SERIAL_ECHOPAIR("mm=", cartesian_mm);
+    // SERIAL_ECHOLNPAIR(" segments=", segments);
+
+    // Drop one segment so the last move is to the exact target.
+    // If there's only 1 segment, loops will be skipped entirely.
+    --segments;
+
+    // Get the raw current position as starting point
+    float raw[XYZE];
+    COPY(raw, current_position);
+
+    // Calculate and execute the segments
+    for (uint16_t s = segments + 1; --s;) {
+      static millis_t next_idle_ms = millis() + 200UL;
+      thermalManager.manage_heater();  // This returns immediately if not really needed.
+      if (ELAPSED(millis(), next_idle_ms)) {
+        next_idle_ms = millis() + 200UL;
+        idle();
+      }
+      LOOP_XYZE(i) raw[i] += segment_distance[i];
+      planner.buffer_line_kinematic(raw, fr_mm_s, active_extruder);
+    }
+
+    // Since segment_distance is only approximate,
+    // the final move must be to the exact destination.
+    planner.buffer_line_kinematic(destination, fr_mm_s, active_extruder);
+  }
+
+#elif ENABLED(MESH_BED_LEVELING)
 
   /**
    * Prepare a mesh-leveled linear move in a Cartesian setup,
@@ -12592,7 +12603,7 @@ void set_current_from_steppers_for_axis(const AxisEnum axis) {
     mesh_line_to_destination(fr_mm_s, x_splits, y_splits);
   }
 
-#elif ENABLED(AUTO_BED_LEVELING_BILINEAR) && !IS_KINEMATIC
+#elif ENABLED(AUTO_BED_LEVELING_BILINEAR)
 
   #define CELL_INDEX(A,V) ((V - bilinear_start[A##_AXIS]) * ABL_BG_FACTOR(A##_AXIS))
 
@@ -12656,6 +12667,7 @@ void set_current_from_steppers_for_axis(const AxisEnum axis) {
   }
 
 #endif // AUTO_BED_LEVELING_BILINEAR
+#endif // IS_CARTESIAN
 
 #if !UBL_DELTA
 #if IS_KINEMATIC
@@ -12674,8 +12686,11 @@ void set_current_from_steppers_for_axis(const AxisEnum axis) {
     // Get the top feedrate of the move in the XY plane
     const float _feedrate_mm_s = MMS_SCALED(feedrate_mm_s);
 
+    const float xdiff = rtarget[X_AXIS] - current_position[X_AXIS],
+                ydiff = rtarget[Y_AXIS] - current_position[Y_AXIS];
+
     // If the move is only in Z/E don't split up the move
-    if (rtarget[X_AXIS] == current_position[X_AXIS] && rtarget[Y_AXIS] == current_position[Y_AXIS]) {
+    if (!xdiff && !ydiff) {
       planner.buffer_line_kinematic(rtarget, _feedrate_mm_s, active_extruder);
       return false;
     }
@@ -12683,21 +12698,15 @@ void set_current_from_steppers_for_axis(const AxisEnum axis) {
     // Fail if attempting move outside printable radius
     if (!position_is_reachable(rtarget[X_AXIS], rtarget[Y_AXIS])) return true;
 
-    // Get the cartesian distances moved in XYZE
-    const float difference[XYZE] = {
-      rtarget[X_AXIS] - current_position[X_AXIS],
-      rtarget[Y_AXIS] - current_position[Y_AXIS],
-      rtarget[Z_AXIS] - current_position[Z_AXIS],
-      rtarget[E_AXIS] - current_position[E_AXIS]
-    };
+    // Remaining cartesian distances
+    const float zdiff = rtarget[Z_AXIS] - current_position[Z_AXIS],
+                ediff = rtarget[E_AXIS] - current_position[E_AXIS];
 
     // Get the linear distance in XYZ
-    float cartesian_mm = SQRT(sq(difference[X_AXIS]) + sq(difference[Y_AXIS]) + sq(difference[Z_AXIS]));
-
     // If the move is very short, check the E move distance
-    if (UNEAR_ZERO(cartesian_mm)) cartesian_mm = FABS(difference[E_AXIS]);
-
     // No E move either? Game over.
+    float cartesian_mm = SQRT(sq(xdiff) + sq(ydiff) + sq(zdiff));
+    if (UNEAR_ZERO(cartesian_mm)) cartesian_mm = FABS(ediff);
     if (UNEAR_ZERO(cartesian_mm)) return true;
 
     // Minimum number of seconds to move the given distance
@@ -12718,10 +12727,10 @@ void set_current_from_steppers_for_axis(const AxisEnum axis) {
     // The approximate length of each segment
     const float inv_segments = 1.0 / float(segments),
                 segment_distance[XYZE] = {
-                  difference[X_AXIS] * inv_segments,
-                  difference[Y_AXIS] * inv_segments,
-                  difference[Z_AXIS] * inv_segments,
-                  difference[E_AXIS] * inv_segments
+                  xdiff * inv_segments,
+                  ydiff * inv_segments,
+                  zdiff * inv_segments,
+                  ediff * inv_segments
                 };
 
     // SERIAL_ECHOPAIR("mm=", cartesian_mm);
@@ -12746,6 +12755,14 @@ void set_current_from_steppers_for_axis(const AxisEnum axis) {
 
     // Calculate and execute the segments
     for (uint16_t s = segments + 1; --s;) {
+
+      static millis_t next_idle_ms = millis() + 200UL;
+      thermalManager.manage_heater();  // This returns immediately if not really needed.
+      if (ELAPSED(millis(), next_idle_ms)) {
+        next_idle_ms = millis() + 200UL;
+        idle();
+      }
+
       LOOP_XYZE(i) raw[i] += segment_distance[i];
       #if ENABLED(DELTA)
         DELTA_RAW_IK(); // Delta can inline its kinematics
@@ -12798,10 +12815,13 @@ void set_current_from_steppers_for_axis(const AxisEnum axis) {
    */
   inline bool prepare_move_to_destination_cartesian() {
     #if HAS_MESH
-      if (planner.leveling_active) {
+      if (planner.leveling_active && planner.leveling_active_at_z(destination[Z_AXIS])) {
         #if ENABLED(AUTO_BED_LEVELING_UBL)
           ubl.line_to_destination_cartesian(MMS_SCALED(feedrate_mm_s), active_extruder);  // UBL's motion routine needs to know about
           return true;                                                                    // all moves, including Z-only moves.
+        #elif ENABLED(SEGMENT_LEVELED_MOVES)
+          segmented_line_to_destination(MMS_SCALED(feedrate_mm_s));
+          return false;
         #else
           /**
            * For MBL and ABL-BILINEAR only segment moves when X or Y are involved.
@@ -13899,9 +13919,8 @@ void setup() {
     OUT_WRITE(STAT_LED_BLUE_PIN, LOW); // turn it off
   #endif
 
-  #if ENABLED(NEOPIXEL_LED)
-    SET_OUTPUT(NEOPIXEL_PIN);
-    setup_neopixel();
+  #if HAS_COLOR_LEDS
+    leds.setup();
   #endif
 
   #if ENABLED(RGB_LED) || ENABLED(RGBW_LED)
