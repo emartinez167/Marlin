@@ -9,7 +9,11 @@ For complete Marlin documentation click over to the [Marlin Homepage <marlinfw.o
 
 ## Stable Release Branch
 
+<<<<<<< HEAD
 This Release branch contains the latest tagged version of Marlin (currently 1.1.3 – June 2017).
+=======
+This Release branch contains the latest tagged version of Marlin (currently 1.1.0-1 – May 2017).
+>>>>>>> RCBugFix
 
 Previous releases of Marlin include [1.0.2-2](https://github.com/MarlinFirmware/Marlin/tree/1.0.2-2) (December 2016) and [1.0.1](https://github.com/MarlinFirmware/Marlin/tree/1.0.1) (December 2014). Any version of Marlin prior to 1.0.1 (when we started tagging versions) can be collectively referred to as Marlin 1.0.0.
 
@@ -18,6 +22,9 @@ Previous releases of Marlin include [1.0.2-2](https://github.com/MarlinFirmware/
 Click on the [Issue Queue](https://github.com/MarlinFirmware/Marlin/issues) and [Pull Requests](https://github.com/MarlinFirmware/Marlin/pulls) links above at any time to see what we're currently working on.
 
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> RCBugFix
 To submit patches and new features for Marlin 1.1 check out the [bugfix-1.1.x](https://github.com/MarlinFirmware/Marlin/tree/bugfix-1.1.x) branch, add your commits, and submit a Pull Request back to the `bugfix-1.1.x` branch. Periodically that branch will form the basis for the next minor release.
 
 Note that our "bugfix" branch will always contain the latest patches to the current release version. These patches may not be widely tested. As always, when using "nightly" builds of Marlin, proceed with full caution.
@@ -65,6 +72,7 @@ Arduino IDE now has support for folder hierarchies, so Marlin 1.2 will have a [h
 ## Credits
 
 The current Marlin dev team consists of:
+<<<<<<< HEAD
  - Roxanne Neufeld [[@Roxy-3D](https://github.com/Roxy-3D)]
  - Scott Lahteine [[@thinkyhead](https://github.com/thinkyhead)]
  - Bob Kuhn [[@Bob-the-Kuhn](https://github.com/Bob-the-Kuhn)]
@@ -101,6 +109,39 @@ Notable contributors include:
  - [[@psavva](https://github.com/psavva)]
  - [[@Tannoo](https://github.com/Tannoo)]
  - [[@teemuatlut](https://github.com/teemuatlut)]
+=======
+ - Roxanne Neufeld [[@Roxy-3D](https://github.com/Roxy-3D)] - English
+ - Scott Lahteine [[@thinkyhead](https://github.com/thinkyhead)] - English
+ - Bob Kuhn [[@Bob-the-Kuhn](https://github.com/Bob-the-Kuhn)] - English
+ - Andreas Hardtung [[@AnHardt](https://github.com/AnHardt)] - Deutsch, English
+ - Nico Tonnhofer [[@Wurstnase](https://github.com/Wurstnase)] - Deutsch, English
+ - Jochen Groppe [[@CONSULitAS](https://github.com/CONSULitAS)] - Deutsch, English
+ - João Brazio [[@jbrazio](https://github.com/jbrazio)] - Portuguese, English
+ - Bo Hermannsen [[@boelle](https://github.com/boelle)] - Danish, English
+ - Bob Cousins [[@bobc](https://github.com/bobc)] - English
+ - [[@maverikou](https://github.com/maverikou)]
+ - Chris Palmer [[@nophead](https://github.com/nophead)]
+ - [[@paclema](https://github.com/paclema)]
+ - Erik van der Zalm [[@ErikZalm](https://github.com/ErikZalm)]
+ - David Braam [[@daid](https://github.com/daid)]
+ - Bernhard Kubicek [[@bkubicek](https://github.com/bkubicek)]
+
+More features have been added by:
+ - Alberto Cotronei [[@MagoKimbra](https://github.com/MagoKimbra)] - English, Italian
+ - Thomas Moore [[@tcm0116](https://github.com/tcm0116)]
+ - Ernesto Martinez [[@emartinez167](https://github.com/emartinez167)]
+ - Petr Zahradnik [[@clexpert](https://github.com/clexpert)]
+ - Kai [[@Kaibob2](https://github.com/Kaibob2)]
+ - Edward Patel [[@epatel](https://github.com/epatel)]
+ - F. Malpartida [[@fmalpartida](https://github.com/fmalpartida)] - English, Spanish
+ - [[@esenapaj](https://github.com/esenapaj)] - English, Japanese
+ - [[@benlye](https://github.com/benlye)]
+ - [[@Tannoo](https://github.com/Tannoo)]
+ - [[@teemuatlut](https://github.com/teemuatlut)]
+ - [[@bgort](https://github.com/bgort)]
+ - [[@LVD-AC](https://github.com/LVD-AC)]
+ - [[@paulusjacobus](https://github.com/paulusjacobus)]
+>>>>>>> RCBugFix
  - ...and many others
 
 ## License
