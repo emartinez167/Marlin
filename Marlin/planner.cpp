@@ -218,7 +218,7 @@ void Planner::calculate_trapezoid_for_block(block_t* const block, const float &e
 
           // Steps required for acceleration, deceleration to/from nominal rate
   int32_t accelerate_steps = CEIL(estimate_acceleration_distance(initial_rate, block->nominal_rate, accel)),
-          decelerate_steps = CEIL(estimate_acceleration_distance(block->nominal_rate, final_rate, -accel)),
+          decelerate_steps = FLOOR(estimate_acceleration_distance(block->nominal_rate, final_rate, -accel)),
           // Steps between acceleration and deceleration, if any
           plateau_steps = block->step_event_count - accelerate_steps - decelerate_steps;
 
@@ -362,7 +362,7 @@ void Planner::recalculate_trapezoids() {
   }
 }
 
-/*
+/**
  * Recalculate the motion plan according to the following algorithm:
  *
  *   1. Go over every block in reverse order...
@@ -391,7 +391,6 @@ void Planner::recalculate() {
   forward_pass();
   recalculate_trapezoids();
 }
-
 
 #if ENABLED(AUTOTEMP)
 

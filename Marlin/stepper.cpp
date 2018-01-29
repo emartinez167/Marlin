@@ -174,28 +174,28 @@ volatile long Stepper::endstops_trigsteps[XYZ];
 
 #if ENABLED(X_DUAL_STEPPER_DRIVERS)
   #define X_APPLY_DIR(v,Q) do{ X_DIR_WRITE(v); X2_DIR_WRITE((v) != INVERT_X2_VS_X_DIR); }while(0)
-  #if ENABLED(DUAL_X_CARRIAGE)
-    #define X_APPLY_DIR(v,ALWAYS) \
-      if (extruder_duplication_enabled || ALWAYS) { \
-        X_DIR_WRITE(v); \
-        X2_DIR_WRITE(v); \
-      } \
-      else { \
-        if (current_block->active_extruder) X2_DIR_WRITE(v); else X_DIR_WRITE(v); \
-      }
-    #define X_APPLY_STEP(v,ALWAYS) \
-      if (extruder_duplication_enabled || ALWAYS) { \
-        X_STEP_WRITE(v); \
-        X2_STEP_WRITE(v); \
-      } \
-      else { \
-        if (current_block->active_extruder) X2_STEP_WRITE(v); else X_STEP_WRITE(v); \
-      }
-  #elif ENABLED(X_DUAL_ENDSTOPS)
+  #if ENABLED(X_DUAL_ENDSTOPS)
     #define X_APPLY_STEP(v,Q) DUAL_ENDSTOP_APPLY_STEP(X,v)
   #else
     #define X_APPLY_STEP(v,Q) do{ X_STEP_WRITE(v); X2_STEP_WRITE(v); }while(0)
   #endif
+#elif ENABLED(DUAL_X_CARRIAGE)
+  #define X_APPLY_DIR(v,ALWAYS) \
+    if (extruder_duplication_enabled || ALWAYS) { \
+      X_DIR_WRITE(v); \
+      X2_DIR_WRITE(v); \
+    } \
+    else { \
+      if (current_block->active_extruder) X2_DIR_WRITE(v); else X_DIR_WRITE(v); \
+    }
+  #define X_APPLY_STEP(v,ALWAYS) \
+    if (extruder_duplication_enabled || ALWAYS) { \
+      X_STEP_WRITE(v); \
+      X2_STEP_WRITE(v); \
+    } \
+    else { \
+      if (current_block->active_extruder) X2_STEP_WRITE(v); else X_STEP_WRITE(v); \
+    }
 #else
   #define X_APPLY_DIR(v,Q) X_DIR_WRITE(v)
   #define X_APPLY_STEP(v,Q) X_STEP_WRITE(v)
@@ -733,11 +733,8 @@ void Stepper::isr() {
 
     #endif // LIN_ADVANCE
   }
-  else if (step_events_completed >= (uint32_t)current_block->decelerate_after && current_block->step_event_count != (uint32_t)current_block->decelerate_after) {
+  else if (step_events_completed > (uint32_t)current_block->decelerate_after) {
     uint16_t step_rate;
-    // If we are entering the deceleration phase for the first time, we have to see how long we have been decelerating up to now. Equals last acceleration time interval.
-    if (!deceleration_time)
-      deceleration_time = calc_timer_interval(acc_step_rate);
     MultiU24X32toH16(step_rate, deceleration_time, current_block->acceleration_rate);
 
     if (step_rate < acc_step_rate) { // Still decelerating?
@@ -1013,7 +1010,7 @@ void Stepper::init() {
   #if HAS_X_ENABLE
     X_ENABLE_INIT;
     if (!X_ENABLE_ON) X_ENABLE_WRITE(HIGH);
-    #if ENABLED(DUAL_X_CARRIAGE) && HAS_X2_ENABLE
+    #if (ENABLED(DUAL_X_CARRIAGE) || ENABLED(X_DUAL_STEPPER_DRIVERS)) && HAS_X2_ENABLE
       X2_ENABLE_INIT;
       if (!X_ENABLE_ON) X2_ENABLE_WRITE(HIGH);
     #endif

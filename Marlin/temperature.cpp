@@ -264,11 +264,11 @@ uint8_t Temperature::soft_pwm_amount[HOTENDS],
     #endif
 
     if (!WITHIN(hotend, _BOT_HOTEND, _TOP_HOTEND)) {
-      SERIAL_ECHOLN(MSG_PID_BAD_EXTRUDER_NUM);
+      SERIAL_ECHOLNPGM(MSG_PID_BAD_EXTRUDER_NUM);
       return;
     }
 
-    SERIAL_ECHOLN(MSG_PID_AUTOTUNE_START);
+    SERIAL_ECHOLNPGM(MSG_PID_AUTOTUNE_START);
 
     disable_all_heaters(); // switch off all heaters.
 
@@ -2200,7 +2200,7 @@ void Temperature::isr() {
       SERIAL_PROTOCOLPAIR(" (", r / OVERSAMPLENR);
       SERIAL_PROTOCOLCHAR(')');
     #endif
-    safe_delay(2);
+    delay(2);
   }
 
   extern uint8_t target_extruder;

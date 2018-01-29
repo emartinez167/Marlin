@@ -867,7 +867,7 @@
 
     #define _GET_SIDE(a,b,c) (SQRT(2*sq(a)+2*sq(b)-4*sq(c))*0.5)
     #define _SKEW_SIDE(a,b,c) tan(M_PI*0.5-acos((sq(a)-sq(b)-sq(c))/(2*c*b)))
-    #define _SKEW_FACTOR(a,b,c) _SKEW_SIDE(a,_GET_SIDE(a,b,c),c)
+    #define _SKEW_FACTOR(a,b,c) _SKEW_SIDE(float(a),_GET_SIDE(float(a),float(b),float(c)),float(c))
 
     #ifndef XY_SKEW_FACTOR
       constexpr float XY_SKEW_FACTOR = (
@@ -1020,10 +1020,18 @@
       #define _MESH_MAX_Y (MAX_PROBE_Y - (MESH_INSET))
     #else
       // Boundaries for Cartesian probing based on set limits
-      #define _MESH_MIN_X (max(X_MIN_BED + MESH_INSET, X_MIN_POS + X_PROBE_OFFSET_FROM_EXTRUDER))
-      #define _MESH_MIN_Y (max(Y_MIN_BED + MESH_INSET, Y_MIN_POS + Y_PROBE_OFFSET_FROM_EXTRUDER))
-      #define _MESH_MAX_X (min(X_MAX_BED - (MESH_INSET), X_MAX_POS + X_PROBE_OFFSET_FROM_EXTRUDER))
-      #define _MESH_MAX_Y (min(Y_MAX_BED - (MESH_INSET), Y_MAX_POS + Y_PROBE_OFFSET_FROM_EXTRUDER))
+      #if ENABLED(AUTO_BED_LEVELING_UBL)
+        #define _MESH_MIN_X (max(X_MIN_BED + MESH_INSET, X_MIN_POS))  // UBL is careful not to probe off the bed.  It does not
+        #define _MESH_MIN_Y (max(Y_MIN_BED + MESH_INSET, Y_MIN_POS))  // need *_PROBE_OFFSET_FROM_EXTRUDER in the mesh dimensions
+        #define _MESH_MAX_X (min(X_MAX_BED - (MESH_INSET), X_MAX_POS))
+        #define _MESH_MAX_Y (min(Y_MAX_BED - (MESH_INSET), Y_MAX_POS))
+      #else
+        #define _MESH_MIN_X (max(X_MIN_BED + MESH_INSET, X_MIN_POS + X_PROBE_OFFSET_FROM_EXTRUDER))
+        #define _MESH_MIN_Y (max(Y_MIN_BED + MESH_INSET, Y_MIN_POS + Y_PROBE_OFFSET_FROM_EXTRUDER))
+        #define _MESH_MAX_X (min(X_MAX_BED - (MESH_INSET), X_MAX_POS + X_PROBE_OFFSET_FROM_EXTRUDER))
+        #define _MESH_MAX_Y (min(Y_MAX_BED - (MESH_INSET), Y_MAX_POS + Y_PROBE_OFFSET_FROM_EXTRUDER))
+      #endif
+
     #endif
     /**
      * These may be overridden in Configuration if a smaller area is wanted
@@ -1159,6 +1167,12 @@
         #define LED_USER_PRESET_BRIGHTNESS 255
       #endif
     #endif
+  #endif
+
+  // Nozzle park
+  #if ENABLED(NOZZLE_PARK_FEATURE) && ENABLED(DELTA)
+    #undef NOZZLE_PARK_Z_FEEDRATE
+    #define NOZZLE_PARK_Z_FEEDRATE NOZZLE_PARK_XY_FEEDRATE
   #endif
 
 #endif // CONDITIONALS_POST_H

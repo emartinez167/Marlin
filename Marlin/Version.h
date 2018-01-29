@@ -49,9 +49,13 @@
    * version was tagged.
    */
 <<<<<<< HEAD
+<<<<<<< HEAD
   #define STRING_DISTRIBUTION_DATE "2017-06-04 12:00"
 =======
   #define STRING_DISTRIBUTION_DATE "2017-10-24 12:00"
+>>>>>>> MarlinFirmware/bugfix-1.1.x
+=======
+  #define STRING_DISTRIBUTION_DATE "2018-01-20"
 >>>>>>> MarlinFirmware/bugfix-1.1.x
 
   /**
