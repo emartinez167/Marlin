@@ -276,6 +276,8 @@
     #error "RX_BUFFER_SIZE must be a power of 2 greater than 1."
   #elif TX_BUFFER_SIZE && (TX_BUFFER_SIZE < 2 || TX_BUFFER_SIZE > 256 || !IS_POWER_OF_2(TX_BUFFER_SIZE))
     #error "TX_BUFFER_SIZE must be 0, a power of 2 greater than 1, and no greater than 256."
+  #elif ENABLED(BLUETOOTH)
+    #error "BLUETOOTH is only supported with AT90USB."
   #endif
 #elif ENABLED(SERIAL_XON_XOFF) || ENABLED(SERIAL_STATS_MAX_RX_QUEUED) || ENABLED(SERIAL_STATS_DROPPED_RX)
   #error "SERIAL_XON_XOFF and SERIAL_STATS_* features not supported on USB-native AVR devices."
@@ -367,8 +369,8 @@ static_assert(X_MAX_LENGTH >= X_BED_SIZE && Y_MAX_LENGTH >= Y_BED_SIZE,
  * I2C Position Encoders
  */
 #if ENABLED(I2C_POSITION_ENCODERS)
-  #if DISABLED(BABYSTEPPING)
-    #error "I2C_POSITION_ENCODERS requires BABYSTEPPING."
+  #if DISABLED(BABYSTEPPING) || DISABLED(BABYSTEP_XY)
+    #error "I2C_POSITION_ENCODERS requires BABYSTEPPING and BABYSTEP_XY."
   #elif !WITHIN(I2CPE_ENCODER_CNT, 1, 5)
     #error "I2CPE_ENCODER_CNT must be between 1 and 5."
   #endif
@@ -914,7 +916,7 @@ static_assert(1 >= 0
  */
 #if ENABLED(DISABLE_X) || ENABLED(DISABLE_Y) || ENABLED(DISABLE_Z)
   #if ENABLED(HOME_AFTER_DEACTIVATE) || ENABLED(Z_SAFE_HOMING)
-    #error "DISABLE_[XYZ] not compatible with HOME_AFTER_DEACTIVATE or Z_SAFE_HOMING."
+    #error "DISABLE_[XYZ] is not compatible with HOME_AFTER_DEACTIVATE or Z_SAFE_HOMING."
   #endif
 #endif // DISABLE_[XYZ]
 
@@ -1421,14 +1423,17 @@ static_assert(1 >= 0
   #if ENABLED(ZONESTAR_LCD)
     + 1
   #endif
+  #if ENABLED(ULTI_CONTROLLER)
+    + 1
+  #endif
   , "Please select no more than one LCD controller option."
 );
 
 /**
  * Make sure HAVE_TMCDRIVER is warranted
  */
-#if ENABLED(HAVE_TMCDRIVER)
-  #if !( ENABLED(  X_IS_TMC ) \
+#if ENABLED(HAVE_TMCDRIVER) && !( \
+         ENABLED(  X_IS_TMC ) \
       || ENABLED( X2_IS_TMC ) \
       || ENABLED(  Y_IS_TMC ) \
       || ENABLED( Y2_IS_TMC ) \
@@ -1439,8 +1444,28 @@ static_assert(1 >= 0
       || ENABLED( E2_IS_TMC ) \
       || ENABLED( E3_IS_TMC ) \
       || ENABLED( E4_IS_TMC ) \
-    )
-    #error "HAVE_TMCDRIVER requires at least one TMC stepper to be set."
+  )
+  #error "HAVE_TMCDRIVER requires at least one TMC stepper to be set."
+#endif
+
+/**
+ * Make sure HAVE_TMC2130 is warranted
+ */
+#if ENABLED(HAVE_TMC2130)
+  #if !( ENABLED(  X_IS_TMC2130 ) \
+      || ENABLED( X2_IS_TMC2130 ) \
+      || ENABLED(  Y_IS_TMC2130 ) \
+      || ENABLED( Y2_IS_TMC2130 ) \
+      || ENABLED(  Z_IS_TMC2130 ) \
+      || ENABLED( Z2_IS_TMC2130 ) \
+      || ENABLED( E0_IS_TMC2130 ) \
+      || ENABLED( E1_IS_TMC2130 ) \
+      || ENABLED( E2_IS_TMC2130 ) \
+      || ENABLED( E3_IS_TMC2130 ) \
+      || ENABLED( E4_IS_TMC2130 ) )
+    #error "HAVE_TMC2130 requires at least one TMC2130 stepper to be set."
+  #elif ENABLED(HYBRID_THRESHOLD) && DISABLED(STEALTHCHOP)
+    #error "Enable STEALTHCHOP to use HYBRID_THRESHOLD."
   #endif
 
   #if ENABLED(X_IS_TMC2130) && !PIN_EXISTS(X_CS)
@@ -1467,26 +1492,18 @@ static_assert(1 >= 0
     #error "E4_CS_PIN is required for E4_IS_TMC2130. Define E4_CS_PIN in Configuration_adv.h."
   #endif
 
-#endif
+  // Require STEALTHCHOP for SENSORLESS_HOMING on DELTA as the transition from spreadCycle to stealthChop
+  // is necessary in order to reset the stallGuard indication between the initial movement of all three
+  // towers to +Z and the individual homing of each tower. This restriction can be removed once a means of
+  // clearing the stallGuard activated status is found.
+  #if ENABLED(SENSORLESS_HOMING) && ENABLED(DELTA) && !ENABLED(STEALTHCHOP)
+    #error "SENSORLESS_HOMING on DELTA currently requires STEALTHCHOP."
+  #endif
 
-/**
- * Make sure HAVE_TMC2130 is warranted
- */
-#if ENABLED(HAVE_TMC2130) && !( \
-       ENABLED(  X_IS_TMC2130 ) \
-    || ENABLED( X2_IS_TMC2130 ) \
-    || ENABLED(  Y_IS_TMC2130 ) \
-    || ENABLED( Y2_IS_TMC2130 ) \
-    || ENABLED(  Z_IS_TMC2130 ) \
-    || ENABLED( Z2_IS_TMC2130 ) \
-    || ENABLED( E0_IS_TMC2130 ) \
-    || ENABLED( E1_IS_TMC2130 ) \
-    || ENABLED( E2_IS_TMC2130 ) \
-    || ENABLED( E3_IS_TMC2130 ) \
-    || ENABLED( E4_IS_TMC2130 ) )
-  #error "HAVE_TMC2130 requires at least one TMC2130 stepper to be set."
-#elif ENABLED(SENSORLESS_HOMING) && DISABLED(HAVE_TMC2130)
-  #error "Enable HAVE_TMC2130 to use SENSORLESS_HOMING."
+#elif ENABLED(SENSORLESS_HOMING)
+
+  #error "SENSORLESS_HOMING requires TMC2130 stepper drivers."
+
 #endif
 
 /**

@@ -25,7 +25,7 @@
  *
  * This firmware is a mashup between Sprinter and grbl.
  *  - https://github.com/kliment/Sprinter
- *  - https://github.com/simen/grbl/tree
+ *  - https://github.com/grbl/grbl
  */
 
 /**
@@ -264,6 +264,10 @@
 #include "types.h"
 #include "gcode.h"
 
+#if ENABLED(AUTO_POWER_CONTROL)
+  #include "power.h"
+#endif
+
 #if HAS_ABL
   #include "vector_3.h"
   #if ENABLED(AUTO_BED_LEVELING_LINEAR)
@@ -350,8 +354,6 @@
 
 #if ENABLED(AUTO_BED_LEVELING_UBL)
   #include "ubl.h"
-  extern bool defer_return_to_status;
-  unified_bed_leveling ubl;
 #endif
 
 #if ENABLED(CNC_COORDINATE_SYSTEMS)
@@ -485,6 +487,10 @@ float soft_endstop_min[XYZ] = { X_MIN_BED, Y_MIN_BED, Z_MIN_POS },
   #endif
 #endif
 
+#if HAS_CONTROLLERFAN
+  int controllerFanSpeed = 0;
+#endif
+
 // The active extruder (tool). Set with T<extruder> command.
 uint8_t active_extruder = 0;
 
@@ -514,6 +520,15 @@ static millis_t stepper_inactive_time = (DEFAULT_STEPPER_DEACTIVE_TIME) * 1000UL
   PrintCounter print_job_timer = PrintCounter();
 #else
   Stopwatch print_job_timer = Stopwatch();
+#endif
+
+// Auto Power Control
+#if ENABLED(AUTO_POWER_CONTROL)
+  #define PSU_ON()  powerManager.power_on()
+  #define PSU_OFF() powerManager.power_off()
+#else
+  #define PSU_ON()  OUT_WRITE(PS_ON_PIN, PS_ON_AWAKE)
+  #define PSU_OFF() OUT_WRITE(PS_ON_PIN, PS_ON_ASLEEP)
 #endif
 
 // Buzzer - I2C on the LCD or a BEEPER_PIN
@@ -698,8 +713,6 @@ static bool send_ok[BUFSIZE];
 
 #if ENABLED(I2C_POSITION_ENCODERS)
   I2CPositionEncodersMgr I2CPEM;
-  uint8_t blockBufferIndexRef = 0;
-  millis_t lastUpdateMillis;
 #endif
 
 #if ENABLED(CNC_WORKSPACE_PLANES)
@@ -927,9 +940,9 @@ void setup_powerhold() {
   #endif
   #if HAS_POWER_SWITCH
     #if ENABLED(PS_DEFAULT_OFF)
-      OUT_WRITE(PS_ON_PIN, PS_ON_ASLEEP);
+      PSU_OFF();
     #else
-      OUT_WRITE(PS_ON_PIN, PS_ON_AWAKE);
+      PSU_ON();
     #endif
   #endif
 }
@@ -1099,15 +1112,15 @@ inline void get_serial_commands() {
       }
 
       #if DISABLED(EMERGENCY_PARSER)
-        // If command was e-stop process now
+        // Process critical commands early
         if (strcmp(command, "M108") == 0) {
           wait_for_heatup = false;
-          #if ENABLED(ULTIPANEL)
+          #if ENABLED(NEWPANEL)
             wait_for_user = false;
           #endif
         }
         if (strcmp(command, "M112") == 0) kill(PSTR(MSG_KILLED));
-        if (strcmp(command, "M410") == 0) { quickstop_stepper(); }
+        if (strcmp(command, "M410") == 0) quickstop_stepper();
       #endif
 
       #if defined(NO_TIMEOUTS) && NO_TIMEOUTS > 0
@@ -2069,7 +2082,7 @@ static void clean_up_after_endstop_or_probe_move() {
   #endif // BLTOUCH
 
   // returns false for ok and true for failure
-  bool set_probe_deployed(bool deploy) {
+  bool set_probe_deployed(const bool deploy) {
 
     #if ENABLED(DEBUG_LEVELING_FEATURE)
       if (DEBUGGING(LEVELING)) {
@@ -2842,6 +2855,19 @@ static void do_homing_move(const AxisEnum axis, const float distance, const floa
     if (axis == Z_AXIS) probing_pause(true);
   #endif
 
+  // Disable stealthChop if used. Enable diag1 pin on driver.
+  #if ENABLED(SENSORLESS_HOMING)
+    #if ENABLED(X_IS_TMC2130) && defined(X_HOMING_SENSITIVITY)
+      if (axis == X_AXIS) tmc_sensorless_homing(stepperX);
+    #endif
+    #if ENABLED(Y_IS_TMC2130) && defined(Y_HOMING_SENSITIVITY)
+      if (axis == Y_AXIS) tmc_sensorless_homing(stepperY);
+    #endif
+    #if ENABLED(Z_IS_TMC2130) && defined(Z_HOMING_SENSITIVITY)
+      if (axis == Z_AXIS) tmc_sensorless_homing(stepperZ);
+    #endif
+  #endif
+
   // Tell the planner the axis is at 0
   current_position[axis] = 0;
 
@@ -2867,6 +2893,19 @@ static void do_homing_move(const AxisEnum axis, const float distance, const floa
   #endif
 
   endstops.hit_on_purpose();
+
+  // Re-enable stealthChop if used. Disable diag1 pin on driver.
+  #if ENABLED(SENSORLESS_HOMING)
+    #if ENABLED(X_IS_TMC2130) && defined(X_HOMING_SENSITIVITY)
+      if (axis == X_AXIS) tmc_sensorless_homing(stepperX, false);
+    #endif
+    #if ENABLED(Y_IS_TMC2130) && defined(Y_HOMING_SENSITIVITY)
+      if (axis == Y_AXIS) tmc_sensorless_homing(stepperY, false);
+    #endif
+    #if ENABLED(Z_IS_TMC2130) && defined(Z_HOMING_SENSITIVITY)
+      if (axis == Z_AXIS) tmc_sensorless_homing(stepperZ, false);
+    #endif
+  #endif
 
   #if ENABLED(DEBUG_LEVELING_FEATURE)
     if (DEBUGGING(LEVELING)) {
@@ -2929,16 +2968,6 @@ static void homeaxis(const AxisEnum axis) {
   #endif
   #if ENABLED(Z_DUAL_ENDSTOPS)
     if (axis == Z_AXIS) stepper.set_homing_flag_z(true);
-  #endif
-
-  // Disable stealthChop if used. Enable diag1 pin on driver.
-  #if ENABLED(SENSORLESS_HOMING)
-    #if ENABLED(X_IS_TMC2130)
-      if (axis == X_AXIS) tmc_sensorless_homing(stepperX);
-    #endif
-    #if ENABLED(Y_IS_TMC2130)
-      if (axis == Y_AXIS) tmc_sensorless_homing(stepperY);
-    #endif
   #endif
 
   // Fast move towards endstop until triggered
@@ -3039,16 +3068,6 @@ static void homeaxis(const AxisEnum axis) {
       if (DEBUGGING(LEVELING)) DEBUG_POS("> AFTER set_axis_is_at_home", current_position);
     #endif
 
-  #endif
-
-  // Re-enable stealthChop if used. Disable diag1 pin on driver.
-  #if ENABLED(SENSORLESS_HOMING)
-    #if ENABLED(X_IS_TMC2130)
-      if (axis == X_AXIS) tmc_sensorless_homing(stepperX, false);
-    #endif
-    #if ENABLED(Y_IS_TMC2130)
-      if (axis == Y_AXIS) tmc_sensorless_homing(stepperY, false);
-    #endif
   #endif
 
   // Put away the Z probe
@@ -3742,11 +3761,37 @@ inline void gcode_G4() {
     ZERO(current_position);
     sync_plan_position();
 
+    // Disable stealthChop if used. Enable diag1 pin on driver.
+    #if ENABLED(SENSORLESS_HOMING)
+      #if ENABLED(X_IS_TMC2130) && defined(X_HOMING_SENSITIVITY)
+        tmc_sensorless_homing(stepperX);
+      #endif
+      #if ENABLED(Y_IS_TMC2130) && defined(Y_HOMING_SENSITIVITY)
+        tmc_sensorless_homing(stepperY);
+      #endif
+      #if ENABLED(Z_IS_TMC2130) && defined(Z_HOMING_SENSITIVITY)
+        tmc_sensorless_homing(stepperZ);
+      #endif
+    #endif
+
     // Move all carriages together linearly until an endstop is hit.
     current_position[X_AXIS] = current_position[Y_AXIS] = current_position[Z_AXIS] = (delta_height + 10);
     feedrate_mm_s = homing_feedrate(X_AXIS);
     buffer_line_to_current_position();
     stepper.synchronize();
+
+    // Re-enable stealthChop if used. Disable diag1 pin on driver.
+    #if ENABLED(SENSORLESS_HOMING)
+      #if ENABLED(X_IS_TMC2130) && defined(X_HOMING_SENSITIVITY)
+        tmc_sensorless_homing(stepperX, false);
+      #endif
+      #if ENABLED(Y_IS_TMC2130) && defined(Y_HOMING_SENSITIVITY)
+        tmc_sensorless_homing(stepperY, false);
+      #endif
+      #if ENABLED(Z_IS_TMC2130) && defined(Z_HOMING_SENSITIVITY)
+        tmc_sensorless_homing(stepperZ, false);
+      #endif
+    #endif
 
     // If an endstop was not hit, then damage can occur if homing is continued.
     // This can occur if the delta height not set correctly.
@@ -4077,12 +4122,6 @@ void home_all_axes() { gcode_G28(true); }
 #endif
 
 #if ENABLED(MESH_BED_LEVELING) || ENABLED(PROBE_MANUALLY)
-
-  #if ENABLED(LCD_BED_LEVELING)
-    extern bool lcd_wait_for_move;
-  #else
-    constexpr bool lcd_wait_for_move = false;
-  #endif
 
   inline void _manual_goto_xy(const float &rx, const float &ry) {
 
@@ -7636,8 +7675,10 @@ inline void gcode_M104() {
       }
     #endif
 
-    if (parser.value_celsius() > thermalManager.degHotend(target_extruder))
-      lcd_status_printf_P(0, PSTR("E%i %s"), target_extruder + 1, MSG_HEATING);
+    #if ENABLED(ULTRA_LCD)
+      if (parser.value_celsius() > thermalManager.degHotend(target_extruder))
+        lcd_status_printf_P(0, PSTR("E%i %s"), target_extruder + 1, MSG_HEATING);
+    #endif
   }
 
   #if ENABLED(AUTOTEMP)
@@ -7794,7 +7835,10 @@ inline void gcode_M109() {
         print_job_timer.start();
     #endif
 
-    if (thermalManager.isHeatingHotend(target_extruder)) lcd_status_printf_P(0, PSTR("E%i %s"), target_extruder + 1, MSG_HEATING);
+    #if ENABLED(ULTRA_LCD)
+      if (thermalManager.isHeatingHotend(target_extruder))
+        lcd_status_printf_P(0, PSTR("E%i %s"), target_extruder + 1, MSG_HEATING);
+    #endif
   }
   else return;
 
@@ -8206,7 +8250,7 @@ inline void gcode_M140() {
       return;
     }
 
-    OUT_WRITE(PS_ON_PIN, PS_ON_AWAKE); // GND
+    PSU_ON();
 
     /**
      * If you have a switch on suicide pin, this is useful
@@ -8259,7 +8303,7 @@ inline void gcode_M81() {
     stepper.synchronize();
     suicide();
   #elif HAS_POWER_SWITCH
-    OUT_WRITE(PS_ON_PIN, PS_ON_ASLEEP);
+    PSU_OFF();
     powersupply_on = false;
   #endif
 
@@ -10572,17 +10616,29 @@ inline void gcode_M502() {
         if (parser.seen(axis_codes[X_AXIS])) tmc_set_sgt(stepperX, extended_axis_codes[TMC_X], parser.value_int()); \
         else tmc_get_sgt(stepperX, extended_axis_codes[TMC_X]); } while(0)
 
-      #if ENABLED(X_IS_TMC2130) || ENABLED(IS_TRAMS)
-        TMC_SET_GET_SGT(X,X);
+      #ifdef X_HOMING_SENSITIVITY
+        #if ENABLED(X_IS_TMC2130) || ENABLED(IS_TRAMS)
+          TMC_SET_GET_SGT(X,X);
+        #endif
+        #if ENABLED(X2_IS_TMC2130)
+          TMC_SET_GET_SGT(X,X2);
+        #endif
       #endif
-      #if ENABLED(X2_IS_TMC2130)
-        TMC_SET_GET_SGT(X,X2);
+      #ifdef Y_HOMING_SENSITIVITY
+        #if ENABLED(Y_IS_TMC2130) || ENABLED(IS_TRAMS)
+          TMC_SET_GET_SGT(Y,Y);
+        #endif
+        #if ENABLED(Y2_IS_TMC2130)
+          TMC_SET_GET_SGT(Y,Y2);
+        #endif
       #endif
-      #if ENABLED(Y_IS_TMC2130) || ENABLED(IS_TRAMS)
-        TMC_SET_GET_SGT(Y,Y);
-      #endif
-      #if ENABLED(Y2_IS_TMC2130)
-        TMC_SET_GET_SGT(Y,Y2);
+      #ifdef Z_HOMING_SENSITIVITY
+        #if ENABLED(Z_IS_TMC2130) || ENABLED(IS_TRAMS)
+          TMC_SET_GET_SGT(Z,Z);
+        #endif
+        #if ENABLED(Z2_IS_TMC2130)
+          TMC_SET_GET_SGT(Z,Z2);
+        #endif
       #endif
     }
   #endif // SENSORLESS_HOMING
@@ -13068,7 +13124,8 @@ void prepare_move_to_destination() {
       }
 
       // Fan off if no steppers have been enabled for CONTROLLERFAN_SECS seconds
-      uint8_t speed = (!lastMotorOn || ELAPSED(ms, lastMotorOn + (CONTROLLERFAN_SECS) * 1000UL)) ? 0 : CONTROLLERFAN_SPEED;
+      const uint8_t speed = (lastMotorOn && PENDING(ms, lastMotorOn + (CONTROLLERFAN_SECS) * 1000UL)) ? CONTROLLERFAN_SPEED : 0;
+      controllerFanSpeed = speed;
 
       // allows digital or PWM fan output to be used (see M42 handling)
       WRITE(CONTROLLER_FAN_PIN, speed);
@@ -13242,6 +13299,9 @@ void prepare_move_to_destination() {
 #endif // FAST_PWM_FAN
 
 void enable_all_steppers() {
+  #if ENABLED(AUTO_POWER_CONTROL)
+    powerManager.power_on();
+  #endif
   enable_X();
   enable_Y();
   enable_Z();
@@ -13385,6 +13445,10 @@ void manage_inactivity(bool ignore_stepper_queue/*=false*/) {
     controllerFan(); // Check if fan should be turned on to cool stepper drivers down
   #endif
 
+  #if ENABLED(AUTO_POWER_CONTROL)
+    powerManager.check();
+  #endif
+
   #if ENABLED(EXTRUDER_RUNOUT_PREVENT)
     if (ELAPSED(ms, previous_cmd_ms + (EXTRUDER_RUNOUT_SECONDS) * 1000UL)
       && thermalManager.degHotend(active_extruder) > EXTRUDER_RUNOUT_MINTEMP) {
@@ -13498,12 +13562,10 @@ void idle(
   #endif
 
   #if ENABLED(I2C_POSITION_ENCODERS)
-    if (planner.blocks_queued() &&
-        ( (blockBufferIndexRef != planner.block_buffer_head) ||
-          ((lastUpdateMillis + I2CPE_MIN_UPD_TIME_MS) < millis())) ) {
-      blockBufferIndexRef = planner.block_buffer_head;
+    static millis_t i2cpem_next_update_ms;
+    if (planner.blocks_queued() && ELAPSED(millis(), i2cpem_next_update_ms)) {
       I2CPEM.update();
-      lastUpdateMillis = millis();
+      i2cpem_next_update_ms = millis() + I2CPE_MIN_UPD_TIME_MS;
     }
   #endif
 }
